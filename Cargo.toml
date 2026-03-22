@@ -1,6 +1,6 @@
 [package]
 name = "beam"
-version = "0.0.2"
+version = "0.1.0"
 edition = "2024"
 description = "Ephemeral terminal-first file sharing"
 license = "MIT"

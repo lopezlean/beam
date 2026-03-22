@@ -6,6 +6,8 @@ You run one command, Beam opens a short-lived download server, prints a big QR c
 
 The sender uses the terminal. The receiver only needs a browser.
 
+See [CHANGELOG.md](CHANGELOG.md) for release-by-release notes.
+
 ## What Beam does today
 
 - Share a single file through a temporary public HTTPS link by default.
@@ -16,7 +18,7 @@ The sender uses the terminal. The receiver only needs a browser.
 - Protect a session with an optional PIN.
 - Print a QR code directly in the terminal.
 - Prefer `cloudflared` automatically when it is available.
-- Fall back to a native Beam relay client when `cloudflared` is missing.
+- Fall back to a native Beam relay client when `cloudflared` is missing and a Beam relay endpoint is reachable.
 - Support resumable downloads with HTTP `Range` for regular files.
 
 ## Current status
@@ -67,7 +69,7 @@ cargo run -- version
 
 - Rust toolchain to build Beam.
 - `cloudflared` if you want Beam to prefer the Cloudflare path outside Homebrew.
-- Nothing extra for the native relay client, but you need a reachable Beam relay endpoint. For local testing, the repo includes `beam-relay`.
+- Nothing extra for the native relay client itself, but you need a reachable Beam relay endpoint. For local testing and self-hosting, the repo includes `beam-relay`.
 - A terminal with ANSI/Unicode support for the best QR experience.
 
 Check your machine with:
@@ -191,6 +193,7 @@ Beam starts a local origin server and chooses a public provider automatically.
 - This is the recommended path when you want the least browser friction.
 - If `cloudflared` is available on `PATH`, Beam prefers it.
 - Otherwise Beam falls back to the native relay client built into the binary.
+- The native path still needs a reachable Beam relay service. The repo ships a reference relay for development and self-hosting, but Beam does not bundle a public hosted relay in this release.
 
 For local relay development or self-hosting, you can run the reference relay server shipped in this repo:
 
@@ -203,6 +206,8 @@ Then point Beam at it:
 ```bash
 BEAM_RELAY_URL=http://127.0.0.1:8787 beam send file.txt --provider native
 ```
+
+`auto` will also select that native path when `cloudflared` is not available and `BEAM_RELAY_URL` points at a reachable relay.
 
 ### Local mode
 
