@@ -50,6 +50,8 @@ brew tap lopezlean/beam
 brew install beam
 ```
 
+The Homebrew formula installs `cloudflared` automatically as a runtime dependency for `beam --global`.
+
 Or run it directly during development:
 
 ```bash
@@ -59,7 +61,7 @@ cargo run -- version
 ## Requirements
 
 - Rust toolchain to build Beam.
-- `cloudflared` if you want `--global`.
+- `cloudflared` if you want `--global` and you are not installing Beam through Homebrew.
 - A terminal with ANSI/Unicode support for the best QR experience.
 
 Check your machine with:
@@ -84,6 +86,8 @@ Install it with:
 brew tap lopezlean/beam
 brew install beam
 ```
+
+This installs both `beam` and `cloudflared`.
 
 You can also use the fully-qualified formula name:
 
