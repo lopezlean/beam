@@ -14,6 +14,7 @@ TEMPLATE = """class Beam < Formula
   license "MIT"
 
   depends_on "rust" => :build
+  depends_on "cloudflared"
 
   def install
     system "cargo", "install", *std_cargo_args(path: ".")
