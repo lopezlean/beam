@@ -46,6 +46,7 @@ cargo build --release
 Homebrew install from this repo:
 
 ```bash
+brew tap lopezlean/beam https://github.com/lopezlean/beam
 brew install lopezlean/beam/beam
 ```
 
@@ -75,16 +76,10 @@ cargo run -- doctor
 
 ## Homebrew
 
-Beam can be installed directly from this repository as a Homebrew tap formula:
+Beam can be installed from this repository as a Homebrew tap formula:
 
 ```bash
-brew install lopezlean/beam/beam
-```
-
-If you prefer to tap first:
-
-```bash
-brew tap lopezlean/beam
+brew tap lopezlean/beam https://github.com/lopezlean/beam
 brew install lopezlean/beam/beam
 ```
 
