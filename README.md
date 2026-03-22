@@ -43,11 +43,11 @@ cargo build --release
 ./target/release/beam version
 ```
 
-Homebrew install from this repo:
+Homebrew install:
 
 ```bash
-brew tap lopezlean/beam https://github.com/lopezlean/beam
-brew install lopezlean/beam/beam
+brew tap lopezlean/beam
+brew install beam
 ```
 
 Or run it directly during development:
@@ -76,12 +76,30 @@ cargo run -- doctor
 
 ## Homebrew
 
-Beam can be installed from this repository as a Homebrew tap formula:
+Beam is distributed through the dedicated tap repository `lopezlean/homebrew-beam`.
+
+Install it with:
 
 ```bash
-brew tap lopezlean/beam https://github.com/lopezlean/beam
+brew tap lopezlean/beam
+brew install beam
+```
+
+You can also use the fully-qualified formula name:
+
+```bash
 brew install lopezlean/beam/beam
 ```
+
+The tap is updated automatically from GitHub releases published in `lopezlean/beam`.
+
+## Release automation
+
+Publishing a GitHub release in `lopezlean/beam` updates `lopezlean/homebrew-beam` automatically through `.github/workflows/publish-homebrew-tap.yml`.
+
+This workflow requires one repository secret in `lopezlean/beam`:
+
+- `HOMEBREW_TAP_TOKEN`: a GitHub token with `contents: write` access to `lopezlean/homebrew-beam`
 
 ## Usage
 

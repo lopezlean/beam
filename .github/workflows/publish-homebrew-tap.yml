@@ -1,0 +1,140 @@
+name: Publish Homebrew Tap
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish into the tap (for example v0.0.1)"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-homebrew-tap-${{ github.event.release.tag_name || inputs.tag || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  update-tap:
+    if: github.event_name != 'release' || github.event.release.prerelease == false
+    runs-on: ubuntu-latest
+    env:
+      TAP_REPOSITORY: lopezlean/homebrew-beam
+      TAP_BRANCH: main
+      FORMULA_PATH: Formula/beam.rb
+    steps:
+      - name: Checkout Beam
+        uses: actions/checkout@v4
+
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG="${{ inputs.tag }}"
+          fi
+
+          if [[ -z "${TAG}" ]]; then
+            echo "No tag was provided." >&2
+            exit 1
+          fi
+
+          if [[ "${TAG}" != v* ]]; then
+            echo "Tags must start with v, got: ${TAG}" >&2
+            exit 1
+          fi
+
+          VERSION="${TAG#v}"
+          TARBALL_URL="https://github.com/${{ github.repository }}/archive/refs/tags/${TAG}.tar.gz"
+
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "tarball_url=${TARBALL_URL}" >> "${GITHUB_OUTPUT}"
+
+      - name: Download source tarball
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL -o beam.tar.gz "${{ steps.meta.outputs.tarball_url }}"
+
+      - name: Compute tarball checksum
+        id: checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHA256="$(sha256sum beam.tar.gz | awk '{print $1}')"
+          echo "sha256=${SHA256}" >> "${GITHUB_OUTPUT}"
+
+      - name: Render formula
+        run: |
+          python3 scripts/render_homebrew_formula.py \
+            --version "${{ steps.meta.outputs.version }}" \
+            --sha256 "${{ steps.checksum.outputs.sha256 }}" \
+            --output rendered/beam.rb
+
+      - name: Prepare tap repository
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${HOMEBREW_TAP_TOKEN}" ]]; then
+            echo "Missing HOMEBREW_TAP_TOKEN secret." >&2
+            exit 1
+          fi
+
+          git init tap
+          cd tap
+          git remote add origin "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/${TAP_REPOSITORY}.git"
+
+          if git fetch --depth=1 origin "${TAP_BRANCH}"; then
+            git checkout -B "${TAP_BRANCH}" "origin/${TAP_BRANCH}"
+          else
+            git checkout --orphan "${TAP_BRANCH}"
+          fi
+
+      - name: Update tap contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "tap/Formula"
+          cp rendered/beam.rb "tap/${FORMULA_PATH}"
+
+          cat > tap/README.md <<'EOF'
+          # homebrew-beam
+
+          Homebrew tap for Beam.
+
+          ## Install
+
+          ```bash
+          brew tap lopezlean/beam
+          brew install beam
+          ```
+          EOF
+
+      - name: Commit and push tap update
+        working-directory: tap
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add README.md "${FORMULA_PATH}"
+
+          if git diff --cached --quiet; then
+            echo "Tap is already up to date."
+            exit 0
+          fi
+
+          git commit -m "beam ${{ steps.meta.outputs.version }}"
+          git push origin "HEAD:${TAP_BRANCH}"
