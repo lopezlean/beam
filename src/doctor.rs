@@ -1,11 +1,10 @@
+use crate::provider::{ProviderKind, cloudflared_available};
 use anyhow::Result;
-use std::{
-    io::{IsTerminal, stdout},
-    process::{Command, Stdio},
-};
+use std::io::{IsTerminal, stdout};
 
 pub async fn run() -> Result<()> {
-    let cloudflared = command_exists("cloudflared", &["--version"]);
+    let cloudflared = cloudflared_available();
+    let default_provider = ProviderKind::Auto.resolve();
     let clipboard = clipboard_command().is_some();
     let terminal = stdout().is_terminal();
     let ansi = std::env::var("TERM")
@@ -14,16 +13,29 @@ pub async fn run() -> Result<()> {
         && terminal;
 
     println!("Beam doctor");
+    println!("  native relay: embedded");
+    println!("  streaming   : ready");
+    println!("  range       : files ok, zip no-resume");
+    println!("  local http  : ok");
     println!("  local https : ok");
     println!("  cloudflared : {}", pass_fail(cloudflared));
+    println!(
+        "  global mode : {}",
+        match default_provider {
+            ProviderKind::Cloudflared => "cloudflared (auto)",
+            ProviderKind::Native => "native (auto)",
+            ProviderKind::Auto => "auto",
+        }
+    );
     println!("  clipboard   : {}", pass_fail(clipboard));
     println!("  terminal    : {}", pass_fail(terminal));
     println!("  ansi/unicode: {}", pass_fail(ansi));
 
     if cloudflared {
-        println!("  note        : --global is ready to use on this machine");
+        println!("  note        : auto will prefer cloudflared for global sharing");
     } else {
-        println!("  note        : install cloudflared to use --global");
+        println!("  note        : auto will fall back to the native relay client");
+        println!("  note        : set BEAM_RELAY_URL or run beam-relay for native relay testing");
     }
 
     Ok(())
@@ -46,10 +58,10 @@ pub fn clipboard_command() -> Option<&'static str> {
 }
 
 fn command_exists(command: &str, args: &[&str]) -> bool {
-    Command::new(command)
+    std::process::Command::new(command)
         .args(args)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .status()
         .is_ok()
 }

@@ -8,7 +8,11 @@ use std::{
     fs, io,
     path::{Component, Path, PathBuf},
 };
-use tokio::{fs::File, io::duplex, sync::mpsc};
+use tokio::{
+    fs::File,
+    io::{AsyncReadExt, AsyncSeekExt, duplex},
+    sync::mpsc,
+};
 use tokio_util::{compat::TokioAsyncReadCompatExt, io::ReaderStream};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -119,6 +123,10 @@ impl ContentSource {
         &self.warnings
     }
 
+    pub fn supports_range(&self) -> bool {
+        matches!(self.kind, ContentKind::File { .. })
+    }
+
     pub async fn stream_to_channel(
         &self,
         tx: mpsc::Sender<Result<Bytes, io::Error>>,
@@ -133,6 +141,24 @@ impl ContentSource {
         }
     }
 
+    pub async fn stream_range_to_channel(
+        &self,
+        start: u64,
+        length: u64,
+        tx: mpsc::Sender<Result<Bytes, io::Error>>,
+        progress_tx: mpsc::UnboundedSender<u64>,
+    ) -> io::Result<u64> {
+        match self.kind {
+            ContentKind::File { .. } => {
+                self.stream_file_range(start, length, tx, progress_tx).await
+            }
+            ContentKind::DirectoryZip { .. } => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "range requests are not supported for directory archives",
+            )),
+        }
+    }
+
     async fn stream_file(
         &self,
         tx: mpsc::Sender<Result<Bytes, io::Error>>,
@@ -140,6 +166,19 @@ impl ContentSource {
     ) -> io::Result<u64> {
         let file = File::open(&self.path).await?;
         let stream = ReaderStream::new(file);
+        forward_stream(stream, tx, progress_tx).await
+    }
+
+    async fn stream_file_range(
+        &self,
+        start: u64,
+        length: u64,
+        tx: mpsc::Sender<Result<Bytes, io::Error>>,
+        progress_tx: mpsc::UnboundedSender<u64>,
+    ) -> io::Result<u64> {
+        let mut file = File::open(&self.path).await?;
+        file.seek(io::SeekFrom::Start(start)).await?;
+        let stream = ReaderStream::new(file.take(length));
         forward_stream(stream, tx, progress_tx).await
     }
 

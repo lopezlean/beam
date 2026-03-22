@@ -1,6 +1,6 @@
 use crate::{
     duration::format_duration,
-    session::{SessionMode, SharedSession},
+    session::{ResolvedSendMode, SharedSession},
 };
 use anyhow::Result;
 use indicatif::HumanBytes;
@@ -122,8 +122,8 @@ fn render_static(
         out,
         "{}",
         match snapshot.mode {
-            SessionMode::Local => "Local network",
-            SessionMode::Global => "Global beta",
+            ResolvedSendMode::Local { .. } => "Local network",
+            ResolvedSendMode::Global { .. } => "Global default",
         },
     )?;
     writeln!(out)?;
@@ -150,14 +150,30 @@ fn render_static(
         writeln!(out, "PIN       : {pin}")?;
     }
 
-    if snapshot.mode == SessionMode::Local {
+    if matches!(snapshot.mode, ResolvedSendMode::Local { .. }) {
         writeln!(
             out,
-            "Note      : LAN mode uses HTTPS with a temporary self-signed certificate."
+            "{} : {}",
+            snapshot.primary_link_label, snapshot.primary_link
+        )?;
+        if let (Some(label), Some(link)) =
+            (&snapshot.secondary_link_label, &snapshot.secondary_link)
+        {
+            writeln!(out, "{} : {}", label, link)?;
+        }
+        writeln!(
+            out,
+            "Note      : The encrypted LAN link uses a temporary self-signed certificate."
         )?;
         writeln!(
             out,
-            "            Browsers like Brave may ask you to trust it once."
+            "Warning   : Local mode uses HTTP for convenience. Use --global or --pin for sensitive files."
+        )?;
+    } else if !snapshot.primary_link.is_empty() {
+        writeln!(
+            out,
+            "{} : {}",
+            snapshot.primary_link_label, snapshot.primary_link
         )?;
     }
 
@@ -165,10 +181,9 @@ fn render_static(
         writeln!(out, "Warnings  : {}", snapshot.warnings.join(" · "))?;
     }
 
-    if !snapshot.public_link.is_empty() {
-        writeln!(out, "Link      : {}", snapshot.public_link)?;
+    if !snapshot.primary_link.is_empty() {
         writeln!(out)?;
-        writeln!(out, "{}", render_qr(&snapshot.public_link)?)?;
+        writeln!(out, "{}", render_qr(&snapshot.primary_link)?)?;
     } else {
         writeln!(out)?;
     }

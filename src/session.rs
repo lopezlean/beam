@@ -2,6 +2,7 @@ use crate::{
     access::{AccessPolicy, verify_pin},
     content::ContentSource,
     duration::{format_duration, remaining_until},
+    provider::ProviderKind,
 };
 use anyhow::Result;
 use axum::{
@@ -9,8 +10,10 @@ use axum::{
     body::Body,
     extract::{Path, Query, State},
     http::{
-        HeaderValue, StatusCode,
-        header::{CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE},
+        HeaderMap, HeaderValue, StatusCode,
+        header::{
+            ACCEPT_RANGES, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, RANGE,
+        },
     },
     response::{Html, IntoResponse, Response},
     routing::get,
@@ -25,10 +28,50 @@ use tokio::sync::{Mutex, mpsc};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SessionMode {
-    Local,
-    Global,
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RequestedSendMode {
+    Global { provider: ProviderKind },
+    Local { base_port: Option<u16> },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ResolvedSendMode {
+    Global { provider: ProviderKind },
+    Local { http_port: u16, https_port: u16 },
+}
+
+impl ResolvedSendMode {
+    pub fn is_local(&self) -> bool {
+        matches!(self, Self::Local { .. })
+    }
+
+    pub fn primary_link_label(&self) -> &'static str {
+        match self {
+            Self::Global { .. } => "Public HTTPS",
+            Self::Local { .. } => "Primary (No Warnings)",
+        }
+    }
+
+    pub fn secondary_link_label(&self) -> Option<&'static str> {
+        match self {
+            Self::Global { .. } => None,
+            Self::Local { .. } => Some("Secondary (Encrypted)"),
+        }
+    }
+
+    pub fn transport_label(&self) -> String {
+        match self {
+            Self::Global { provider } => provider.transport_label().to_string(),
+            Self::Local { .. } => "HTTP primary + HTTPS optional".to_string(),
+        }
+    }
+
+    fn badge_label(&self) -> &'static str {
+        match self {
+            Self::Global { .. } => "GLOBAL",
+            Self::Local { .. } => "LAN",
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -36,7 +79,7 @@ pub struct SessionSnapshot {
     pub display_name: String,
     pub download_name: String,
     pub content_kind: &'static str,
-    pub transport_label: &'static str,
+    pub transport_label: String,
     pub input_size: u64,
     pub content_length: Option<u64>,
     pub expires_at: SystemTime,
@@ -44,20 +87,24 @@ pub struct SessionSnapshot {
     pub once: bool,
     pub requires_pin: bool,
     pub revealed_pin: Option<String>,
-    pub public_link: String,
+    pub primary_link_label: &'static str,
+    pub primary_link: String,
+    pub secondary_link_label: Option<&'static str>,
+    pub secondary_link: Option<String>,
     pub provider_status: String,
     pub completed_downloads: u64,
     pub bytes_served: u64,
     pub active_download: bool,
     pub consumed: bool,
     pub warnings: Vec<String>,
-    pub mode: SessionMode,
+    pub mode: ResolvedSendMode,
     pub token: String,
 }
 
 #[derive(Clone, Debug)]
 struct MutableSessionState {
-    public_link: String,
+    primary_link: String,
+    secondary_link: Option<String>,
     provider_status: String,
     completed_downloads: u64,
     bytes_served: u64,
@@ -70,7 +117,7 @@ pub struct SharedSession {
     content: ContentSource,
     access: AccessPolicy,
     revealed_pin: Option<String>,
-    mode: SessionMode,
+    mode: ResolvedSendMode,
     shutdown: CancellationToken,
     state: Mutex<MutableSessionState>,
 }
@@ -101,7 +148,7 @@ impl SharedSession {
         content: ContentSource,
         access: AccessPolicy,
         revealed_pin: Option<String>,
-        mode: SessionMode,
+        mode: ResolvedSendMode,
         shutdown: CancellationToken,
     ) -> Arc<Self> {
         Arc::new(Self {
@@ -112,7 +159,8 @@ impl SharedSession {
             mode,
             shutdown,
             state: Mutex::new(MutableSessionState {
-                public_link: String::new(),
+                primary_link: String::new(),
+                secondary_link: None,
                 provider_status: "Preparing session".to_string(),
                 completed_downloads: 0,
                 bytes_served: 0,
@@ -138,9 +186,10 @@ impl SharedSession {
         &self.content
     }
 
-    pub async fn set_public_link(&self, public_link: String) {
+    pub async fn set_links(&self, primary_link: String, secondary_link: Option<String>) {
         let mut state = self.state.lock().await;
-        state.public_link = public_link;
+        state.primary_link = primary_link;
+        state.secondary_link = secondary_link;
     }
 
     pub async fn set_provider_status(&self, status: impl Into<String>) {
@@ -154,10 +203,7 @@ impl SharedSession {
             display_name: self.content.display_name().to_string(),
             download_name: self.content.download_name().to_string(),
             content_kind: self.content.kind_label(),
-            transport_label: match self.mode {
-                SessionMode::Local => "HTTPS (temporary local certificate)",
-                SessionMode::Global => "HTTPS tunnel",
-            },
+            transport_label: self.mode.transport_label(),
             input_size: self.content.input_size(),
             content_length: self.content.content_length(),
             expires_at: self.access.expires_at,
@@ -165,14 +211,17 @@ impl SharedSession {
             once: self.access.once,
             requires_pin: self.access.pin_hash.is_some(),
             revealed_pin: self.revealed_pin.clone(),
-            public_link: state.public_link.clone(),
+            primary_link_label: self.mode.primary_link_label(),
+            primary_link: state.primary_link.clone(),
+            secondary_link_label: self.mode.secondary_link_label(),
+            secondary_link: state.secondary_link.clone(),
             provider_status: state.provider_status.clone(),
             completed_downloads: state.completed_downloads,
             bytes_served: state.bytes_served,
             active_download: state.active_download,
             consumed: state.consumed,
             warnings: self.content.warnings().to_vec(),
-            mode: self.mode,
+            mode: self.mode.clone(),
             token: self.token.clone(),
         }
     }
@@ -185,10 +234,7 @@ impl SharedSession {
         }
 
         let snapshot = self.snapshot().await;
-        let badge = match snapshot.mode {
-            SessionMode::Local => "LAN",
-            SessionMode::Global => "GLOBAL BETA",
-        };
+        let badge = snapshot.mode.badge_label();
         let pin_block = if snapshot.requires_pin {
             r#"<label for="pin">PIN</label><input id="pin" name="pin" placeholder="123456" inputmode="numeric" />"#
         } else {
@@ -208,6 +254,23 @@ impl SharedSession {
             String::new()
         } else {
             format!("<p class=\"warning\">{}</p>", snapshot.warnings.join(" · "))
+        };
+        let secondary_link = snapshot
+            .secondary_link
+            .as_ref()
+            .zip(snapshot.secondary_link_label)
+            .map(|(link, label)| {
+                format!(
+                    r#"<div class="link-card"><span>{label}</span><a href="{link}">{link}</a></div>"#
+                )
+            })
+            .unwrap_or_default();
+        let local_notice = if snapshot.mode.is_local() {
+            r#"<p class="warning">Local mode uses HTTP for convenience. Use --global or --pin for sensitive files.</p>
+    <p class="small">The encrypted LAN link uses a temporary self-signed certificate and may show a browser warning.</p>"#
+                .to_string()
+        } else {
+            String::new()
         };
 
         Ok(format!(
@@ -318,6 +381,31 @@ impl SharedSession {
       margin-top: 12px;
       color: #ffd589;
     }}
+    .small {{
+      font-size: 0.9rem;
+    }}
+    .links {{
+      display: grid;
+      gap: 12px;
+      margin-top: 20px;
+    }}
+    .link-card {{
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 14px 16px;
+      background: rgba(10, 19, 31, 0.6);
+    }}
+    .link-card span {{
+      display: block;
+      color: var(--muted);
+      font-size: 0.82rem;
+      margin-bottom: 6px;
+    }}
+    .link-card a {{
+      color: var(--text);
+      word-break: break-word;
+      text-decoration: none;
+    }}
     .footer {{
       margin-top: 18px;
       display: flex;
@@ -339,11 +427,16 @@ impl SharedSession {
       <div><span>Downloads</span><strong>{downloads}</strong></div>
       <div><span>Transport</span><strong>{transport}</strong></div>
     </section>
+    <section class="links">
+      <div class="link-card"><span>{primary_label}</span><a href="{primary_link}">{primary_link}</a></div>
+      {secondary_link}
+    </section>
     <form method="get" action="/download/{token}">
       {pin_block}
       <button type="submit">Download now</button>
     </form>
     {warnings}
+    {local_notice}
     <div class="footer">
       <span>{status}</span>
       <span>{once_label}</span>
@@ -377,8 +470,12 @@ impl SharedSession {
             size = size_label,
             downloads = snapshot.completed_downloads,
             transport = snapshot.transport_label,
+            primary_label = snapshot.primary_link_label,
+            primary_link = snapshot.primary_link,
+            secondary_link = secondary_link,
             token = snapshot.token,
             status = snapshot.provider_status,
+            local_notice = local_notice,
             once_label = if snapshot.once {
                 "burn after reading"
             } else {
@@ -406,7 +503,17 @@ impl SharedSession {
             };
         }
 
+        let state = self.state.lock().await;
+        if state.consumed {
+            return Err(SessionRejection::AlreadyConsumed);
+        }
+
+        Ok(())
+    }
+
+    async fn reserve_download(&self) -> Result<(), SessionRejection> {
         let mut state = self.state.lock().await;
+
         if state.consumed {
             return Err(SessionRejection::AlreadyConsumed);
         }
@@ -480,8 +587,22 @@ async fn download_handler(
     State(session): State<Arc<SharedSession>>,
     Path(token): Path<String>,
     Query(query): Query<DownloadQuery>,
+    headers: HeaderMap,
 ) -> Response {
     if let Err(rejection) = session.begin_download(&token, query.pin.as_deref()).await {
+        return rejection.into_response();
+    }
+
+    let range_header = headers
+        .get(RANGE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let planned = match plan_download(session.content(), range_header.as_deref()) {
+        Ok(plan) => plan,
+        Err(response) => return response,
+    };
+
+    if let Err(rejection) = session.reserve_download().await {
         return rejection.into_response();
     }
 
@@ -503,7 +624,14 @@ async fn download_handler(
     });
 
     tokio::spawn(async move {
-        let outcome = content.stream_to_channel(tx, progress_tx).await;
+        let outcome = match planned.range {
+            Some(range) => {
+                content
+                    .stream_range_to_channel(range.start, range.len(), tx, progress_tx)
+                    .await
+            }
+            None => content.stream_to_channel(tx, progress_tx).await,
+        };
         match outcome {
             Ok(_) => session_for_task.finish_download(true).await,
             Err(_) => session_for_task.finish_download(false).await,
@@ -511,7 +639,7 @@ async fn download_handler(
     });
 
     let mut response = Response::new(Body::from_stream(ReceiverStream::new(rx)));
-    *response.status_mut() = StatusCode::OK;
+    *response.status_mut() = planned.status;
     response.headers_mut().insert(
         CONTENT_TYPE,
         HeaderValue::from_static("application/octet-stream"),
@@ -523,7 +651,17 @@ async fn download_handler(
         response.headers_mut().insert(CONTENT_DISPOSITION, value);
     }
 
-    if let Some(length) = session.content().content_length() {
+    if let Ok(value) = HeaderValue::from_str(planned.accept_ranges) {
+        response.headers_mut().insert(ACCEPT_RANGES, value);
+    }
+
+    if let Some(content_range) = planned.content_range {
+        if let Ok(value) = HeaderValue::from_str(&content_range) {
+            response.headers_mut().insert(CONTENT_RANGE, value);
+        }
+    }
+
+    if let Some(length) = planned.content_length {
         if let Ok(value) = HeaderValue::from_str(&length.to_string()) {
             response.headers_mut().insert(CONTENT_LENGTH, value);
         }
@@ -568,14 +706,129 @@ fn content_disposition(file_name: &str) -> String {
     format!("attachment; filename=\"{escaped}\"")
 }
 
+struct DownloadPlan {
+    status: StatusCode,
+    content_length: Option<u64>,
+    content_range: Option<String>,
+    accept_ranges: &'static str,
+    range: Option<RequestedRange>,
+}
+
+#[derive(Clone, Copy)]
+struct RequestedRange {
+    start: u64,
+    end: u64,
+}
+
+impl RequestedRange {
+    fn len(self) -> u64 {
+        self.end - self.start + 1
+    }
+
+    fn content_range(self, total: u64) -> String {
+        format!("bytes {}-{}/{}", self.start, self.end, total)
+    }
+}
+
+fn plan_download(
+    content: &ContentSource,
+    range_header: Option<&str>,
+) -> Result<DownloadPlan, Response> {
+    if content.supports_range() {
+        let total = content.content_length().unwrap_or(0);
+        if let Some(range_header) = range_header {
+            let range = parse_range_header(range_header, total).map_err(|_| {
+                let mut response = (
+                    StatusCode::RANGE_NOT_SATISFIABLE,
+                    "Invalid or unsatisfiable range",
+                )
+                    .into_response();
+                if let Ok(value) = HeaderValue::from_str(&format!("bytes */{total}")) {
+                    response.headers_mut().insert(CONTENT_RANGE, value);
+                }
+                response
+            })?;
+            return Ok(DownloadPlan {
+                status: StatusCode::PARTIAL_CONTENT,
+                content_length: Some(range.len()),
+                content_range: Some(range.content_range(total)),
+                accept_ranges: "bytes",
+                range: Some(range),
+            });
+        }
+
+        return Ok(DownloadPlan {
+            status: StatusCode::OK,
+            content_length: content.content_length(),
+            content_range: None,
+            accept_ranges: "bytes",
+            range: None,
+        });
+    }
+
+    Ok(DownloadPlan {
+        status: StatusCode::OK,
+        content_length: content.content_length(),
+        content_range: None,
+        accept_ranges: "none",
+        range: None,
+    })
+}
+
+fn parse_range_header(value: &str, total: u64) -> Result<RequestedRange, ()> {
+    if total == 0 {
+        return Err(());
+    }
+
+    let value = value.strip_prefix("bytes=").ok_or(())?;
+    if value.contains(',') {
+        return Err(());
+    }
+
+    let (start, end) = value.split_once('-').ok_or(())?;
+    if start.is_empty() {
+        let suffix_len = end.parse::<u64>().map_err(|_| ())?;
+        if suffix_len == 0 {
+            return Err(());
+        }
+        let bounded = suffix_len.min(total);
+        let range_start = total - bounded;
+        return Ok(RequestedRange {
+            start: range_start,
+            end: total - 1,
+        });
+    }
+
+    let start = start.parse::<u64>().map_err(|_| ())?;
+    if start >= total {
+        return Err(());
+    }
+
+    let end = if end.is_empty() {
+        total - 1
+    } else {
+        end.parse::<u64>().map_err(|_| ())?.min(total - 1)
+    };
+
+    if end < start {
+        return Err(());
+    }
+
+    Ok(RequestedRange { start, end })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{SessionMode, SharedSession, build_router};
+    use super::{ResolvedSendMode, SharedSession, build_router};
     use crate::{
         access::build_access_policy,
         content::{ArchiveFormat, ContentSource},
+        provider::ProviderKind,
     };
-    use axum::http::{Request, StatusCode};
+    use axum::http::{
+        Request, StatusCode,
+        header::{ACCEPT_RANGES, CONTENT_RANGE, RANGE},
+    };
     use http_body_util::BodyExt;
     use std::{fs, time::Duration};
     use tempfile::tempdir;
@@ -594,7 +847,10 @@ mod tests {
             content,
             access.policy,
             access.revealed_pin,
-            SessionMode::Local,
+            ResolvedSendMode::Local {
+                http_port: 8080,
+                https_port: 8081,
+            },
             CancellationToken::new(),
         );
         let router = build_router(session);
@@ -627,7 +883,10 @@ mod tests {
             content,
             access.policy,
             access.revealed_pin,
-            SessionMode::Local,
+            ResolvedSendMode::Local {
+                http_port: 8080,
+                https_port: 8081,
+            },
             CancellationToken::new(),
         );
         let router = build_router(session);
@@ -643,5 +902,131 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn serves_partial_range_for_files() {
+        let temp = tempdir().unwrap();
+        let file = temp.path().join("hello.txt");
+        fs::write(&file, b"beam-range").unwrap();
+        let content = ContentSource::inspect(&file, ArchiveFormat::Zip).unwrap();
+        let access = build_access_policy(Duration::from_secs(300), false, None);
+        let session = SharedSession::new(
+            "token123".to_string(),
+            content,
+            access.policy,
+            access.revealed_pin,
+            ResolvedSendMode::Local {
+                http_port: 8080,
+                https_port: 8081,
+            },
+            CancellationToken::new(),
+        );
+        let router = build_router(session);
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri("/download/token123")
+                    .header(RANGE, "bytes=5-9")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            response.headers().get(CONTENT_RANGE).unwrap(),
+            "bytes 5-9/10"
+        );
+        assert_eq!(response.headers().get(ACCEPT_RANGES).unwrap(), "bytes");
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(&bytes[..], b"range");
+    }
+
+    #[tokio::test]
+    async fn rejects_unsatisfiable_ranges() {
+        let temp = tempdir().unwrap();
+        let file = temp.path().join("hello.txt");
+        fs::write(&file, b"beam").unwrap();
+        let content = ContentSource::inspect(&file, ArchiveFormat::Zip).unwrap();
+        let access = build_access_policy(Duration::from_secs(300), false, None);
+        let session = SharedSession::new(
+            "token123".to_string(),
+            content,
+            access.policy,
+            access.revealed_pin,
+            ResolvedSendMode::Local {
+                http_port: 8080,
+                https_port: 8081,
+            },
+            CancellationToken::new(),
+        );
+        let router = build_router(session);
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri("/download/token123")
+                    .header(RANGE, "bytes=50-99")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+        assert_eq!(response.headers().get(CONTENT_RANGE).unwrap(), "bytes */4");
+    }
+
+    #[tokio::test]
+    async fn zip_streams_do_not_advertise_range_support() {
+        let temp = tempdir().unwrap();
+        let folder = temp.path().join("folder");
+        fs::create_dir(&folder).unwrap();
+        fs::write(folder.join("hello.txt"), b"beam").unwrap();
+        let content = ContentSource::inspect(&folder, ArchiveFormat::Zip).unwrap();
+        let access = build_access_policy(Duration::from_secs(300), false, None);
+        let session = SharedSession::new(
+            "token123".to_string(),
+            content,
+            access.policy,
+            access.revealed_pin,
+            ResolvedSendMode::Local {
+                http_port: 8080,
+                https_port: 8081,
+            },
+            CancellationToken::new(),
+        );
+        let router = build_router(session);
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri("/download/token123")
+                    .header(RANGE, "bytes=0-3")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers().get(ACCEPT_RANGES).unwrap(), "none");
+    }
+
+    #[test]
+    fn transport_labels_match_mode() {
+        let global = ResolvedSendMode::Global {
+            provider: ProviderKind::Cloudflared,
+        };
+        let local = ResolvedSendMode::Local {
+            http_port: 8080,
+            https_port: 8081,
+        };
+
+        assert_eq!(global.transport_label(), "HTTPS tunnel via cloudflared");
+        assert_eq!(local.transport_label(), "HTTP primary + HTTPS optional");
     }
 }

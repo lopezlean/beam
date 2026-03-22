@@ -8,13 +8,16 @@ The sender uses the terminal. The receiver only needs a browser.
 
 ## What Beam does today
 
-- Share a single file over your local network.
+- Share a single file through a temporary public HTTPS link by default.
+- Share a single file over your local network with `--local`.
 - Share a directory as a ZIP archive generated on the fly.
 - Set an explicit TTL for every session.
 - Use burn-after-reading mode with `--once`.
 - Protect a session with an optional PIN.
 - Print a QR code directly in the terminal.
-- Expose a temporary public URL with `--global` via `cloudflared`.
+- Prefer `cloudflared` automatically when it is available.
+- Fall back to a native Beam relay client when `cloudflared` is missing.
+- Support resumable downloads with HTTP `Range` for regular files.
 
 ## Current status
 
@@ -22,8 +25,10 @@ Beam is an early v1 CLI.
 
 - Sender support: macOS and Linux.
 - Receiver support: any device with a browser.
-- Local mode uses HTTPS with a temporary self-signed certificate.
-- Global mode is beta and currently uses `cloudflared`.
+- Global mode is the default path and uses provider `auto`.
+- `auto` prefers `cloudflared`, then falls back to the native relay client.
+- Local mode exposes both HTTP and HTTPS, with HTTP as the primary LAN link.
+- Directory ZIP streaming stays chunked and does not support resume.
 
 ## Why Beam
 
@@ -50,7 +55,7 @@ brew tap lopezlean/beam
 brew install beam
 ```
 
-The Homebrew formula installs `cloudflared` automatically as a runtime dependency for `beam --global`.
+The Homebrew formula installs `cloudflared` automatically, so `auto` usually picks the Cloudflare tunnel path on Homebrew systems.
 
 Or run it directly during development:
 
@@ -61,7 +66,8 @@ cargo run -- version
 ## Requirements
 
 - Rust toolchain to build Beam.
-- `cloudflared` if you want `--global` and you are not installing Beam through Homebrew.
+- `cloudflared` if you want Beam to prefer the Cloudflare path outside Homebrew.
+- Nothing extra for the native relay client, but you need a reachable Beam relay endpoint. For local testing, the repo includes `beam-relay`.
 - A terminal with ANSI/Unicode support for the best QR experience.
 
 Check your machine with:
@@ -117,15 +123,16 @@ Main options:
 
 - `-t, --ttl <TTL>`: session lifetime, default `30m`
 - `--once`: destroy the session after the first successful download
-- `--global`: expose the session through a public tunnel
-- `--provider <PROVIDER>`: tunnel backend, currently `cloudflared`
+- `--global`: explicit alias for the default public tunnel mode
+- `--local`: serve over your LAN with HTTP primary and HTTPS secondary links
+- `--provider <PROVIDER>`: `auto`, `cloudflared`, or `native`
 - `--pin[=<PIN>]`: require a PIN; if no value is provided, Beam generates one
 - `--archive <ARCHIVE>`: archive format for directories, currently `zip`
-- `--port <PORT>`: fixed port instead of a random free port
+- `--port <PORT>`: fixed global port, or the base HTTP port in `--local`
 
 ## Examples
 
-Share a file on your local network:
+Share a file through the default public tunnel:
 
 ```bash
 beam send video.mp4
@@ -155,35 +162,60 @@ Send a folder as a ZIP:
 beam send ./my-folder
 ```
 
-Expose a public link through a tunnel:
+Force the Cloudflare tunnel explicitly:
 
 ```bash
-beam send backup.sql --global -t 2h
+beam send backup.sql --provider cloudflared -t 2h
+```
+
+Force the native relay explicitly:
+
+```bash
+beam send backup.sql --provider native -t 2h
+```
+
+Share only on your local network:
+
+```bash
+beam send photo.jpg --local
 ```
 
 ## Local mode vs global mode
 
-### Local mode
+### Global mode (default, provider `auto`)
 
-Beam serves the download over your LAN and prints an `https://` link with a QR code.
-
-Important:
-
-- Beam generates a temporary self-signed certificate for each local session.
-- Browsers such as Brave may show a certificate warning like `ERR_CERT_AUTHORITY_INVALID`.
-- This happens because the certificate is not signed by a trusted public CA.
-- The warning is expected in pure LAN mode.
-
-If you want a browser flow without that warning for the receiver, use `--global`.
-
-### Global mode
-
-Beam starts a local server and exposes it through `cloudflared`.
+Beam starts a local origin server and chooses a public provider automatically.
 
 - The public URL is HTTPS.
 - The link is easy to open on phones and remote devices.
 - This is the recommended path when you want the least browser friction.
-- This mode is still beta and depends on `cloudflared` being installed and available on `PATH`.
+- If `cloudflared` is available on `PATH`, Beam prefers it.
+- Otherwise Beam falls back to the native relay client built into the binary.
+
+For local relay development or self-hosting, you can run the reference relay server shipped in this repo:
+
+```bash
+cargo run --bin beam-relay
+```
+
+Then point Beam at it:
+
+```bash
+BEAM_RELAY_URL=http://127.0.0.1:8787 beam send file.txt --provider native
+```
+
+### Local mode
+
+Beam serves the same session on your LAN with two links:
+
+- Primary: `http://...` for the least browser friction.
+- Secondary: `https://...` with a temporary self-signed certificate.
+
+Important:
+
+- Beam prints the QR code for the HTTP LAN link.
+- The HTTPS LAN link is encrypted, but browsers such as Brave may show a certificate warning like `ERR_CERT_AUTHORITY_INVALID`.
+- If you pass `--port 8080`, Beam uses HTTP on `8080` and tries HTTPS on `8081..8090` before picking the next free port above that range.
 
 ## How expiration works
 
@@ -195,10 +227,13 @@ Every Beam session is ephemeral.
 
 ## Security notes
 
-- Local mode uses HTTPS, but the certificate is temporary and untrusted by default.
+- Global mode uses HTTPS public URLs through the selected provider.
+- The native relay forwards requests through a Beam relay endpoint and does not store the payload on disk.
+- Local mode uses HTTP as the primary convenience link and HTTPS as a secondary encrypted link with an untrusted temporary certificate.
 - `--pin` adds an application-level gate before download.
 - `--once` is useful for sensitive one-time transfers.
-- `--global` currently relies on a tunnel provider instead of a Beam-hosted relay.
+- Regular files support HTTP `Range` so interrupted downloads can resume.
+- Directory ZIP streaming stays chunked and does not currently support resume.
 - Beam does not implement end-to-end encryption in the application layer yet.
 
 ## Development
