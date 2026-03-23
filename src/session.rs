@@ -103,6 +103,7 @@ pub struct SessionSnapshot {
 
 #[derive(Clone, Debug)]
 struct MutableSessionState {
+    mode: ResolvedSendMode,
     primary_link: String,
     secondary_link: Option<String>,
     provider_status: String,
@@ -110,6 +111,7 @@ struct MutableSessionState {
     bytes_served: u64,
     active_download: bool,
     consumed: bool,
+    warnings: Vec<String>,
 }
 
 pub struct SharedSession {
@@ -117,7 +119,6 @@ pub struct SharedSession {
     content: ContentSource,
     access: AccessPolicy,
     revealed_pin: Option<String>,
-    mode: ResolvedSendMode,
     shutdown: CancellationToken,
     state: Mutex<MutableSessionState>,
 }
@@ -156,9 +157,9 @@ impl SharedSession {
             content,
             access,
             revealed_pin,
-            mode,
             shutdown,
             state: Mutex::new(MutableSessionState {
+                mode,
                 primary_link: String::new(),
                 secondary_link: None,
                 provider_status: "Preparing session".to_string(),
@@ -166,6 +167,7 @@ impl SharedSession {
                 bytes_served: 0,
                 active_download: false,
                 consumed: false,
+                warnings: Vec::new(),
             }),
         })
     }
@@ -197,13 +199,33 @@ impl SharedSession {
         state.provider_status = status.into();
     }
 
+    pub async fn set_mode(&self, mode: ResolvedSendMode) {
+        let mut state = self.state.lock().await;
+        state.mode = mode;
+    }
+
+    pub async fn add_warning(&self, warning: impl Into<String>) {
+        let warning = warning.into();
+        let mut state = self.state.lock().await;
+        if !state.warnings.iter().any(|existing| existing == &warning) {
+            state.warnings.push(warning);
+        }
+    }
+
     pub async fn snapshot(&self) -> SessionSnapshot {
         let state = self.state.lock().await;
+        let warnings = self
+            .content
+            .warnings()
+            .iter()
+            .cloned()
+            .chain(state.warnings.iter().cloned())
+            .collect::<Vec<_>>();
         SessionSnapshot {
             display_name: self.content.display_name().to_string(),
             download_name: self.content.download_name().to_string(),
             content_kind: self.content.kind_label(),
-            transport_label: self.mode.transport_label(),
+            transport_label: state.mode.transport_label(),
             input_size: self.content.input_size(),
             content_length: self.content.content_length(),
             expires_at: self.access.expires_at,
@@ -211,17 +233,17 @@ impl SharedSession {
             once: self.access.once,
             requires_pin: self.access.pin_hash.is_some(),
             revealed_pin: self.revealed_pin.clone(),
-            primary_link_label: self.mode.primary_link_label(),
+            primary_link_label: state.mode.primary_link_label(),
             primary_link: state.primary_link.clone(),
-            secondary_link_label: self.mode.secondary_link_label(),
+            secondary_link_label: state.mode.secondary_link_label(),
             secondary_link: state.secondary_link.clone(),
             provider_status: state.provider_status.clone(),
             completed_downloads: state.completed_downloads,
             bytes_served: state.bytes_served,
             active_download: state.active_download,
             consumed: state.consumed,
-            warnings: self.content.warnings().to_vec(),
-            mode: self.mode.clone(),
+            warnings,
+            mode: state.mode.clone(),
             token: self.token.clone(),
         }
     }
