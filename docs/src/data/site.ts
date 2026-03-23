@@ -25,7 +25,7 @@ export const heroSessionDocument = {
     { label: "Payload", value: "Vector.png (file)" },
     { label: "Download", value: "Vector.png" },
     { label: "Size", value: "26.84 KiB" },
-    { label: "Transport", value: "HTTPS tunnel via cloudflared" },
+    { label: "Transport", value: "HTTPS tunnel via Pinggy SSH" },
     { label: "Security", value: "token URL" },
     {
       label: "Public HTTPS",
@@ -86,7 +86,7 @@ export const featureCards = [
   {
     icon: "public",
     title: "Auto provider routing",
-    body: "Global mode defaults to provider auto, preferring cloudflared and then the native relay client when a relay endpoint is reachable."
+    body: "Global mode defaults to provider auto, trying cloudflared first, then Pinggy over SSH, and finally the native relay when it is configured or already reachable."
   },
   {
     icon: "lan",
@@ -99,7 +99,7 @@ export const installCards = [
   {
     label: "macOS / Linux (Homebrew)",
     command: "brew tap lopezlean/beam\nbrew install beam",
-    note: "The Homebrew formula also installs cloudflared, so provider auto usually picks the Cloudflare path out of the box."
+    note: "The Homebrew formula also installs cloudflared, while provider auto can still fall back to Pinggy over your system ssh with no account setup."
   },
   {
     label: "Rust source build",
@@ -136,7 +136,7 @@ export const manualEntries = [
     title: "Send",
     description:
       "The primary command. Share local files or folders over a short-lived public link or over your LAN.",
-    flags: ["--ttl 10m", "--once", "--pin", "--local", "--provider native"],
+    flags: ["--ttl 10m", "--once", "--pin", "--local", "--provider pinggy"],
     command: "beam send report.pdf --ttl 30m --once",
     detail: "Sends report.pdf, expires in 30 minutes, and destroys the session after the first successful download."
   },
@@ -149,12 +149,12 @@ export const manualEntries = [
     detail: "Serves HTTP on 8080 and searches for the nearest available HTTPS port starting at 8081."
   },
   {
-    title: "Native relay",
+    title: "Provider override",
     description:
-      "Beam embeds a native relay client. For development or self-hosting, point it to a reachable Beam relay endpoint.",
-    flags: ["--provider native", "BEAM_RELAY_URL=http://127.0.0.1:8787"],
-    command: "BEAM_RELAY_URL=http://127.0.0.1:8787 beam send build.zip --provider native",
-    detail: "Useful for testing the native path without cloudflared."
+      "Override the global provider when you want to force the no-account Pinggy path or a self-hosted native relay.",
+    flags: ["--provider pinggy", "--provider native", "BEAM_RELAY_URL=http://127.0.0.1:8787"],
+    command: "beam send build.zip --provider pinggy",
+    detail: "Useful when Cloudflare is unavailable and you want the SSH-based fallback explicitly."
   }
 ] as const;
 
@@ -178,5 +178,10 @@ export const faqItems = [
     question: "Is the native relay public by default?",
     answer:
       "No. Beam embeds the native relay client, but a hosted public relay is not bundled in this release. This repo ships beam-relay for local relay development and self-hosting."
+  },
+  {
+    question: "What happens if Cloudflare is rate-limited?",
+    answer:
+      "Beam can fall back to Pinggy over SSH without an account. On the free path, Pinggy gives you random public HTTPS domains and may cap the tunnel lifetime at 60 minutes."
   }
 ] as const;

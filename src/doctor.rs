@@ -1,10 +1,16 @@
-use crate::provider::{ProviderKind, cloudflared_available};
+use crate::provider::{
+    auto_provider_order, cloudflared_available, native_available_for_auto, native_relay_configured,
+    ssh_available, TunnelProvider,
+};
 use anyhow::Result;
 use std::io::{IsTerminal, stdout};
 
 pub async fn run() -> Result<()> {
     let cloudflared = cloudflared_available();
-    let default_provider = ProviderKind::Auto.resolve();
+    let ssh = ssh_available();
+    let native_auto = native_available_for_auto().await;
+    let native_configured = native_relay_configured();
+    let auto_order = auto_provider_order().await;
     let clipboard = clipboard_command().is_some();
     let terminal = stdout().is_terminal();
     let ansi = std::env::var("TERM")
@@ -19,12 +25,20 @@ pub async fn run() -> Result<()> {
     println!("  local http  : ok");
     println!("  local https : ok");
     println!("  cloudflared : {}", pass_fail(cloudflared));
+    println!("  ssh         : {}", pass_fail(ssh));
+    println!("  pinggy      : {}", if ssh { "ready via ssh" } else { "ssh missing" });
+    println!("  native auto : {}", if native_auto { "eligible" } else { "disabled" });
+    println!("  global mode : auto");
     println!(
-        "  global mode : {}",
-        match default_provider {
-            ProviderKind::Cloudflared => "cloudflared (auto)",
-            ProviderKind::Native => "native (auto)",
-            ProviderKind::Auto => "auto",
+        "  auto order  : {}",
+        if auto_order.is_empty() {
+            "none".to_string()
+        } else {
+            auto_order
+                .iter()
+                .map(|provider| provider.name().to_string())
+                .collect::<Vec<_>>()
+                .join(" -> ")
         }
     );
     println!("  clipboard   : {}", pass_fail(clipboard));
@@ -32,10 +46,15 @@ pub async fn run() -> Result<()> {
     println!("  ansi/unicode: {}", pass_fail(ansi));
 
     if cloudflared {
-        println!("  note        : auto will prefer cloudflared for global sharing");
-    } else {
-        println!("  note        : auto will fall back to the native relay client");
-        println!("  note        : set BEAM_RELAY_URL or run beam-relay for native relay testing");
+        println!("  note        : auto tries cloudflared first when it is available");
+    }
+    if ssh {
+        println!("  note        : auto can fall back to Pinggy over SSH without an account");
+    }
+    if native_configured {
+        println!("  note        : native relay is explicitly configured through BEAM_RELAY_URL");
+    } else if !native_auto {
+        println!("  note        : native relay stays out of auto unless configured or locally reachable");
     }
 
     Ok(())

@@ -256,9 +256,8 @@ async fn start_global_runtime(
     shutdown: CancellationToken,
     provider: ProviderKind,
 ) -> Result<(Arc<SharedSession>, RuntimeHandles)> {
-    let resolved_provider = provider.resolve();
     let resolved_mode = ResolvedSendMode::Global {
-        provider: resolved_provider,
+        provider,
     };
     let session = SharedSession::new(
         token.clone(),
@@ -286,29 +285,48 @@ async fn start_global_runtime(
     session
         .set_provider_status(format!(
             "Starting global link via {}",
-            resolved_provider.name()
+            provider.name()
         ))
         .await;
 
-    let tunnel = match resolved_provider.start(&local_origin).await {
-        Ok(handle) => handle,
+    let started = match provider.start(&local_origin).await {
+        Ok(started) => started,
         Err(error) => {
             shutdown.cancel();
             let _ = server_task.await;
-            return Err(global_startup_error(command, resolved_provider, error));
+            return Err(global_startup_error(command, provider, error));
         }
     };
 
-    let public_link = format!("{}/?token={token}", tunnel.public_url.trim_end_matches('/'));
-    let status_task = forward_tunnel_status(tunnel.subscribe_status(), session.clone());
+    session
+        .set_mode(ResolvedSendMode::Global {
+            provider: started.provider,
+        })
+        .await;
+
+    if started.provider == ProviderKind::Pinggy
+        && command.ttl > crate::provider::pinggy_free_ttl_limit()
+    {
+        session
+            .add_warning(
+                "Pinggy free tunnels may expire after 60 minutes even if Beam's TTL is longer.",
+            )
+            .await;
+    }
+
+    let public_link = format!(
+        "{}/?token={token}",
+        started.handle.public_url.trim_end_matches('/')
+    );
+    let status_task = forward_tunnel_status(started.handle.subscribe_status(), session.clone());
 
     Ok((
         session,
         RuntimeHandles {
             primary_link: public_link,
             secondary_link: None,
-            ready_status: format!("Public link ready via {}", tunnel.provider_name),
-            tunnel: Some(tunnel),
+            ready_status: started.ready_status,
+            tunnel: Some(started.handle),
             tunnel_status_task: Some(status_task),
             server_tasks: vec![server_task],
             shutdown_tasks: Vec::new(),
@@ -579,15 +597,19 @@ fn global_startup_error(
 ) -> anyhow::Error {
     match provider {
         ProviderKind::Cloudflared => anyhow!(
-            "Beam needs cloudflared for global sharing. Install it with brew install cloudflared, switch to the native relay with --provider native, or run beam send {} --local.\n\nDetails: {error}",
+            "Beam could not start cloudflared for global sharing. If cloudflared is missing, install it with brew install cloudflared. Otherwise try --provider pinggy, switch to --provider native, or run beam send {} --local.\n\nDetails: {error}",
+            command.path.display(),
+        ),
+        ProviderKind::Pinggy => anyhow!(
+            "Beam could not start Pinggy over SSH for global sharing. Ensure ssh is installed and reachable, or try --provider cloudflared, switch to --provider native, or run beam send {} --local.\n\nDetails: {error}",
             command.path.display(),
         ),
         ProviderKind::Native => anyhow!(
-            "Beam could not reach the native relay for global sharing. Start beam-relay or set BEAM_RELAY_URL, or run beam send {} --local.\n\nDetails: {error}",
+            "Beam could not reach the native relay for global sharing. Start beam-relay or set BEAM_RELAY_URL, or try --provider pinggy, or run beam send {} --local.\n\nDetails: {error}",
             command.path.display(),
         ),
         ProviderKind::Auto => anyhow!(
-            "Beam could not start global sharing automatically for {}.\n\nDetails: {error}",
+            "Beam could not start global sharing automatically for {}.\n\n{error}",
             command.path.display(),
         ),
     }

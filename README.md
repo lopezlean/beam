@@ -18,7 +18,8 @@ See [CHANGELOG.md](CHANGELOG.md) for release-by-release notes.
 - Protect a session with an optional PIN.
 - Print a QR code directly in the terminal.
 - Prefer `cloudflared` automatically when it is available.
-- Fall back to a native Beam relay client when `cloudflared` is missing and a Beam relay endpoint is reachable.
+- Fall back to Pinggy over SSH when `cloudflared` is unavailable or fails to start.
+- Use the native Beam relay client last, when a relay endpoint is configured or clearly reachable.
 - Support resumable downloads with HTTP `Range` for regular files.
 
 ## Current status
@@ -28,7 +29,7 @@ Beam is an early v1 CLI.
 - Sender support: macOS and Linux.
 - Receiver support: any device with a browser.
 - Global mode is the default path and uses provider `auto`.
-- `auto` prefers `cloudflared`, then falls back to the native relay client.
+- `auto` tries `cloudflared`, then Pinggy over SSH, then the native relay client when available.
 - Local mode exposes both HTTP and HTTPS, with HTTP as the primary LAN link.
 - Directory ZIP streaming stays chunked and does not support resume.
 
@@ -57,7 +58,7 @@ brew tap lopezlean/beam
 brew install beam
 ```
 
-The Homebrew formula installs `cloudflared` automatically, so `auto` usually picks the Cloudflare tunnel path on Homebrew systems.
+The Homebrew formula installs `cloudflared` automatically, so `auto` usually tries the Cloudflare path first on Homebrew systems and falls back to Pinggy over your system `ssh` when needed.
 
 Or run it directly during development:
 
@@ -69,6 +70,7 @@ cargo run -- version
 
 - Rust toolchain to build Beam.
 - `cloudflared` if you want Beam to prefer the Cloudflare path outside Homebrew.
+- OpenSSH (`ssh`) if you want Beam to use the no-account Pinggy fallback outside typical macOS/Linux defaults.
 - Nothing extra for the native relay client itself, but you need a reachable Beam relay endpoint. For local testing and self-hosting, the repo includes `beam-relay`.
 - A terminal with ANSI/Unicode support for the best QR experience.
 
@@ -95,7 +97,7 @@ brew tap lopezlean/beam
 brew install beam
 ```
 
-This installs both `beam` and `cloudflared`.
+This installs both `beam` and `cloudflared`. Pinggy support uses your system `ssh`.
 
 You can also use the fully-qualified formula name:
 
@@ -127,7 +129,7 @@ Main options:
 - `--once`: destroy the session after the first successful download
 - `--global`: explicit alias for the default public tunnel mode
 - `--local`: serve over your LAN with HTTP primary and HTTPS secondary links
-- `--provider <PROVIDER>`: `auto`, `cloudflared`, or `native`
+- `--provider <PROVIDER>`: `auto`, `cloudflared`, `pinggy`, or `native`
 - `--pin[=<PIN>]`: require a PIN; if no value is provided, Beam generates one
 - `--archive <ARCHIVE>`: archive format for directories, currently `zip`
 - `--port <PORT>`: fixed global port, or the base HTTP port in `--local`
@@ -170,6 +172,12 @@ Force the Cloudflare tunnel explicitly:
 beam send backup.sql --provider cloudflared -t 2h
 ```
 
+Force the Pinggy SSH tunnel explicitly:
+
+```bash
+beam send backup.sql --provider pinggy -t 2h
+```
+
 Force the native relay explicitly:
 
 ```bash
@@ -191,9 +199,11 @@ Beam starts a local origin server and chooses a public provider automatically.
 - The public URL is HTTPS.
 - The link is easy to open on phones and remote devices.
 - This is the recommended path when you want the least browser friction.
-- If `cloudflared` is available on `PATH`, Beam prefers it.
-- Otherwise Beam falls back to the native relay client built into the binary.
+- If `cloudflared` is available on `PATH`, Beam tries it first.
+- If Cloudflare startup fails or `cloudflared` is unavailable, Beam falls back to Pinggy over SSH when `ssh` is available.
+- Beam only tries the native relay automatically when `BEAM_RELAY_URL` is configured or the default local relay endpoint is already reachable.
 - The native path still needs a reachable Beam relay service. The repo ships a reference relay for development and self-hosting, but Beam does not bundle a public hosted relay in this release.
+- Pinggy's free unauthenticated path uses random public domains and may expire after 60 minutes even if Beam's TTL is longer.
 
 For local relay development or self-hosting, you can run the reference relay server shipped in this repo:
 
@@ -207,7 +217,7 @@ Then point Beam at it:
 BEAM_RELAY_URL=http://127.0.0.1:8787 beam send file.txt --provider native
 ```
 
-`auto` will also select that native path when `cloudflared` is not available and `BEAM_RELAY_URL` points at a reachable relay.
+`auto` will only select that native path when `BEAM_RELAY_URL` is configured or the default local relay is already reachable.
 
 ### Local mode
 
@@ -233,6 +243,7 @@ Every Beam session is ephemeral.
 ## Security notes
 
 - Global mode uses HTTPS public URLs through the selected provider.
+- Pinggy global links are public HTTPS URLs backed by a no-account SSH tunnel.
 - The native relay forwards requests through a Beam relay endpoint and does not store the payload on disk.
 - Local mode uses HTTP as the primary convenience link and HTTPS as a secondary encrypted link with an untrusted temporary certificate.
 - `--pin` adds an application-level gate before download.
