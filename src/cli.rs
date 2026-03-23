@@ -322,10 +322,7 @@ async fn start_global_runtime(
             .await;
     }
 
-    let public_link = format!(
-        "{}/?token={token}",
-        started.handle.public_url.trim_end_matches('/')
-    );
+    let public_link = format!("{}/s/{token}", started.handle.public_url.trim_end_matches('/'));
     let status_task = forward_tunnel_status(started.handle.subscribe_status(), session.clone());
 
     Ok((
@@ -404,8 +401,8 @@ async fn start_local_runtime(
     Ok((
         session,
         RuntimeHandles {
-            primary_link: format!("http://{local_host}:{http_port}/?token={token}"),
-            secondary_link: Some(format!("https://{local_host}:{https_port}/?token={token}")),
+            primary_link: format!("http://{local_host}:{http_port}/s/{token}"),
+            secondary_link: Some(format!("https://{local_host}:{https_port}/s/{token}")),
             ready_status: "Local HTTP + HTTPS ready".to_string(),
             tunnel: None,
             tunnel_status_task: None,

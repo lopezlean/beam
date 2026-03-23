@@ -30,7 +30,7 @@ export const heroSessionDocument = {
     {
       label: "Public HTTPS",
       value:
-        "https://beam.link/?token=token",
+        "https://beam.link/s/token",
       accent: true
     }
   ],
