@@ -314,6 +314,14 @@ async fn start_global_runtime(
             .await;
     }
 
+    if started.provider == ProviderKind::Serveo {
+        session
+            .add_warning(
+                "Serveo anonymous browser links may show an interstitial warning page before download.",
+            )
+            .await;
+    }
+
     let public_link = format!(
         "{}/?token={token}",
         started.handle.public_url.trim_end_matches('/')
@@ -597,15 +605,19 @@ fn global_startup_error(
 ) -> anyhow::Error {
     match provider {
         ProviderKind::Cloudflared => anyhow!(
-            "Beam could not start cloudflared for global sharing. If cloudflared is missing, install it with brew install cloudflared. Otherwise try --provider pinggy, switch to --provider native, or run beam send {} --local.\n\nDetails: {error}",
+            "Beam could not start cloudflared for global sharing. If cloudflared is missing, install it with brew install cloudflared. Otherwise try --provider pinggy, try --provider serveo, switch to --provider native, or run beam send {} --local.\n\nDetails: {error}",
             command.path.display(),
         ),
         ProviderKind::Pinggy => anyhow!(
-            "Beam could not start Pinggy over SSH for global sharing. Ensure ssh is installed and reachable, or try --provider cloudflared, switch to --provider native, or run beam send {} --local.\n\nDetails: {error}",
+            "Beam could not start Pinggy over SSH for global sharing. Ensure ssh is installed and reachable, or try --provider cloudflared, try --provider serveo, switch to --provider native, or run beam send {} --local.\n\nDetails: {error}",
+            command.path.display(),
+        ),
+        ProviderKind::Serveo => anyhow!(
+            "Beam could not start Serveo over SSH for global sharing. Ensure ssh is installed and reachable, or try --provider pinggy, try --provider cloudflared, switch to --provider native, or run beam send {} --local.\n\nDetails: {error}",
             command.path.display(),
         ),
         ProviderKind::Native => anyhow!(
-            "Beam could not reach the native relay for global sharing. Start beam-relay or set BEAM_RELAY_URL, or try --provider pinggy, or run beam send {} --local.\n\nDetails: {error}",
+            "Beam could not reach the native relay for global sharing. Start beam-relay or set BEAM_RELAY_URL, or try --provider pinggy, try --provider serveo, or run beam send {} --local.\n\nDetails: {error}",
             command.path.display(),
         ),
         ProviderKind::Auto => anyhow!(
@@ -650,5 +662,16 @@ mod tests {
     #[test]
     fn local_and_global_flags_conflict() {
         assert!(Cli::try_parse_from(["beam", "send", "video.mp4", "--local", "--global"]).is_err());
+    }
+
+    #[test]
+    fn parses_explicit_serveo_provider() {
+        let cli = Cli::parse_from(["beam", "send", "video.mp4", "--provider", "serveo"]);
+        let command = match cli.command {
+            super::Commands::Send(command) => command,
+            _ => panic!("expected send command"),
+        };
+
+        assert_eq!(command.provider, crate::provider::ProviderKind::Serveo);
     }
 }

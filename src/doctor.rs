@@ -27,6 +27,7 @@ pub async fn run() -> Result<()> {
     println!("  cloudflared : {}", pass_fail(cloudflared));
     println!("  ssh         : {}", pass_fail(ssh));
     println!("  pinggy      : {}", if ssh { "ready via ssh" } else { "ssh missing" });
+    println!("  serveo      : {}", if ssh { "ready via ssh" } else { "ssh missing" });
     println!("  native auto : {}", if native_auto { "eligible" } else { "disabled" });
     println!("  global mode : auto");
     println!(
@@ -50,6 +51,7 @@ pub async fn run() -> Result<()> {
     }
     if ssh {
         println!("  note        : auto can fall back to Pinggy over SSH without an account");
+        println!("  note        : Serveo is available as an explicit SSH provider and may show a browser warning page");
     }
     if native_configured {
         println!("  note        : native relay is explicitly configured through BEAM_RELAY_URL");

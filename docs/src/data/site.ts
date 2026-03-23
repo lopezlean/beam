@@ -151,8 +151,8 @@ export const manualEntries = [
   {
     title: "Provider override",
     description:
-      "Override the global provider when you want to force the no-account Pinggy path or a self-hosted native relay.",
-    flags: ["--provider pinggy", "--provider native", "BEAM_RELAY_URL=http://127.0.0.1:8787"],
+      "Override the global provider when you want to force Pinggy, Serveo, or a self-hosted native relay.",
+    flags: ["--provider pinggy", "--provider serveo", "--provider native"],
     command: "beam send build.zip --provider pinggy",
     detail: "Useful when Cloudflare is unavailable and you want the SSH-based fallback explicitly."
   }
@@ -183,5 +183,10 @@ export const faqItems = [
     question: "What happens if Cloudflare is rate-limited?",
     answer:
       "Beam can fall back to Pinggy over SSH without an account. On the free path, Pinggy gives you random public HTTPS domains and may cap the tunnel lifetime at 60 minutes."
+  },
+  {
+    question: "Can I use another SSH tunnel provider?",
+    answer:
+      "Yes. Beam also supports Serveo through --provider serveo. It is an explicit provider, not part of auto, and anonymous browser visits may see an interstitial warning page before download."
   }
 ] as const;

@@ -32,6 +32,9 @@ const PINGGY_STARTUP_TIMEOUT: Duration = Duration::from_secs(20);
 const PINGGY_HOST: &str = "free.pinggy.io";
 const PINGGY_PORT: u16 = 443;
 const PINGGY_FREE_TTL_LIMIT: Duration = Duration::from_secs(60 * 60);
+const SERVEO_STARTUP_TIMEOUT: Duration = Duration::from_secs(20);
+const SERVEO_HOST: &str = "serveo.net";
+const SERVEO_PORT: u16 = 22;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
 pub enum ProviderKind {
@@ -39,6 +42,7 @@ pub enum ProviderKind {
     Auto,
     Cloudflared,
     Pinggy,
+    Serveo,
     Native,
 }
 
@@ -70,6 +74,7 @@ impl TunnelProvider for ProviderKind {
                 start_explicit_provider(ProviderKind::Cloudflared, local_url).await
             }
             ProviderKind::Pinggy => start_explicit_provider(ProviderKind::Pinggy, local_url).await,
+            ProviderKind::Serveo => start_explicit_provider(ProviderKind::Serveo, local_url).await,
             ProviderKind::Native => start_explicit_provider(ProviderKind::Native, local_url).await,
         }
     }
@@ -79,6 +84,7 @@ impl TunnelProvider for ProviderKind {
             ProviderKind::Auto => "auto",
             ProviderKind::Cloudflared => "cloudflared",
             ProviderKind::Pinggy => "pinggy",
+            ProviderKind::Serveo => "serveo",
             ProviderKind::Native => "native",
         }
     }
@@ -90,6 +96,7 @@ impl ProviderKind {
             Self::Auto => "HTTPS tunnel",
             Self::Cloudflared => "HTTPS tunnel via cloudflared",
             Self::Pinggy => "HTTPS tunnel via Pinggy SSH",
+            Self::Serveo => "HTTPS tunnel via Serveo SSH",
             Self::Native => "HTTPS relay via native client",
         }
     }
@@ -226,6 +233,13 @@ async fn provider_auto_availability(provider: ProviderKind) -> std::result::Resu
                 Err("ssh is not installed or not on PATH".to_string())
             }
         }
+        ProviderKind::Serveo => {
+            if ssh_available() {
+                Ok(())
+            } else {
+                Err("ssh is not installed or not on PATH".to_string())
+            }
+        }
         ProviderKind::Native => {
             if native_available_for_auto().await {
                 Ok(())
@@ -244,6 +258,7 @@ async fn start_concrete_provider(provider: ProviderKind, local_url: &str) -> Res
     match provider {
         ProviderKind::Cloudflared => start_cloudflared(local_url).await,
         ProviderKind::Pinggy => start_pinggy(local_url).await,
+        ProviderKind::Serveo => start_serveo(local_url).await,
         ProviderKind::Native => start_native(local_url).await,
         ProviderKind::Auto => unreachable!("auto should be resolved before starting a provider"),
     }
@@ -347,28 +362,13 @@ async fn start_pinggy(local_url: &str) -> Result<TunnelHandle> {
         .port_or_known_default()
         .context("Pinggy requires a port in the local origin URL")?;
 
-    let mut command = Command::new(ssh_command());
+    let mut command = ssh_tunnel_command(true);
     command
-        .arg("-T")
-        .arg("-o")
-        .arg("BatchMode=yes")
-        .arg("-o")
-        .arg("ExitOnForwardFailure=yes")
-        .arg("-o")
-        .arg("StrictHostKeyChecking=no")
-        .arg("-o")
-        .arg("UserKnownHostsFile=/dev/null")
-        .arg("-o")
-        .arg("ConnectTimeout=15")
-        .arg("-o")
-        .arg("ServerAliveInterval=30")
         .arg("-p")
         .arg(PINGGY_PORT.to_string())
         .arg("-R")
         .arg(format!("0:{host}:{port}"))
-        .arg(PINGGY_HOST)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .arg(PINGGY_HOST);
 
     let mut child = command
         .spawn()
@@ -441,6 +441,108 @@ async fn start_pinggy(local_url: &str) -> Result<TunnelHandle> {
     Ok(TunnelHandle {
         public_url,
         provider_name: ProviderKind::Pinggy.name(),
+        runtime: TunnelRuntime::ExternalProcess { child },
+        status_rx,
+        tasks,
+    })
+}
+
+async fn start_serveo(local_url: &str) -> Result<TunnelHandle> {
+    let origin = Url::parse(local_url).context("invalid local origin URL for Serveo")?;
+    let host = origin
+        .host_str()
+        .context("Serveo requires a host in the local origin URL")?;
+    let port = origin
+        .port_or_known_default()
+        .context("Serveo requires a port in the local origin URL")?;
+
+    let mut command = ssh_tunnel_command(false);
+    command
+        .arg("-o")
+        .arg("PreferredAuthentications=keyboard-interactive")
+        .arg("-o")
+        .arg("KbdInteractiveAuthentication=yes")
+        .arg("-o")
+        .arg("PubkeyAuthentication=no")
+        .arg("-o")
+        .arg("IdentityAgent=none")
+        .arg("-p")
+        .arg(SERVEO_PORT.to_string())
+        .arg("-R")
+        .arg(format!("80:{host}:{port}"))
+        .arg(SERVEO_HOST);
+
+    let mut child = command
+        .spawn()
+        .context("failed to spawn ssh for Serveo. Install OpenSSH and ensure it is on PATH")?;
+
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let child = Arc::new(Mutex::new(child));
+    let (status_tx, status_rx) = watch::channel("Starting Serveo tunnel over SSH".to_string());
+    let (url_tx, mut url_rx) = mpsc::unbounded_channel();
+    let url_sent = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let startup_error = Arc::new(StdMutex::new(None::<String>));
+    let mut tasks = Vec::new();
+
+    if let Some(stdout) = stdout {
+        tasks.push(tokio::spawn(watch_serveo_output(
+            BufReader::new(stdout),
+            status_tx.clone(),
+            url_tx.clone(),
+            url_sent.clone(),
+            startup_error.clone(),
+        )));
+    }
+
+    if let Some(stderr) = stderr {
+        tasks.push(tokio::spawn(watch_serveo_output(
+            BufReader::new(stderr),
+            status_tx.clone(),
+            url_tx.clone(),
+            url_sent.clone(),
+            startup_error.clone(),
+        )));
+    }
+
+    drop(url_tx);
+
+    let deadline = Instant::now() + SERVEO_STARTUP_TIMEOUT;
+    let public_url = loop {
+        if let Ok(url) = url_rx.try_recv() {
+            break url;
+        }
+
+        {
+            let mut child = child.lock().await;
+            if let Some(status) = child.try_wait().context("failed to query Serveo ssh status")? {
+                let detail = startup_error
+                    .lock()
+                    .ok()
+                    .and_then(|slot| slot.clone())
+                    .unwrap_or_else(|| format!("Serveo ssh exited before returning a public URL ({status})"));
+                bail!("{detail}");
+            }
+        }
+
+        if Instant::now() >= deadline {
+            shutdown_child(child.clone()).await;
+            let detail = startup_error
+                .lock()
+                .ok()
+                .and_then(|slot| slot.clone())
+                .unwrap_or_else(|| "timed out waiting for Serveo to expose a public URL".to_string());
+            bail!("{detail}");
+        }
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+
+    let _ = status_tx.send(format!("Serveo ready at {public_url}"));
+
+    Ok(TunnelHandle {
+        public_url,
+        provider_name: ProviderKind::Serveo.name(),
         runtime: TunnelRuntime::ExternalProcess { child },
         status_rx,
         tasks,
@@ -765,10 +867,67 @@ async fn watch_pinggy_output<R>(
         let status = trimmed.chars().take(120).collect::<String>();
         let _ = status_tx.send(status);
 
-        record_pinggy_startup_error(&startup_error, trimmed);
+        record_ssh_provider_startup_error(&startup_error, trimmed);
 
         if !url_sent.load(std::sync::atomic::Ordering::Acquire) {
             if let Some(url) = extract_pinggy_public_url(trimmed, &regex) {
+                if url_sent
+                    .compare_exchange(
+                        false,
+                        true,
+                        std::sync::atomic::Ordering::AcqRel,
+                        std::sync::atomic::Ordering::Acquire,
+                    )
+                    .is_ok()
+                {
+                    let _ = url_tx.send(url);
+                }
+            }
+        }
+    }
+}
+
+async fn watch_serveo_output<R>(
+    mut reader: BufReader<R>,
+    status_tx: watch::Sender<String>,
+    url_tx: mpsc::UnboundedSender<String>,
+    url_sent: Arc<std::sync::atomic::AtomicBool>,
+    startup_error: Arc<StdMutex<Option<String>>>,
+) where
+    R: AsyncRead + Unpin + Send + 'static,
+{
+    let regex = Regex::new(
+        r"https://[A-Za-z0-9._-]+(?:\.[A-Za-z0-9._-]+)*\.(?:serveo\.net|serveousercontent\.com)",
+    )
+        .unwrap();
+    let mut line = String::new();
+
+    loop {
+        line.clear();
+        let read = match reader.read_line(&mut line).await {
+            Ok(read) => read,
+            Err(error) => {
+                let _ = status_tx.send(format!("Serveo ssh read error: {error}"));
+                break;
+            }
+        };
+
+        if read == 0 {
+            break;
+        }
+
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let status = strip_ansi(trimmed).chars().take(120).collect::<String>();
+        let _ = status_tx.send(status);
+
+        record_ssh_provider_startup_error(&startup_error, trimmed);
+
+        if !url_sent.load(std::sync::atomic::Ordering::Acquire) {
+            if let Some(url) = extract_serveo_public_url(trimmed, &regex) {
                 if url_sent
                     .compare_exchange(
                         false,
@@ -825,7 +984,7 @@ fn record_cloudflared_startup_error(
     }
 }
 
-fn seems_pinggy_error(line: &str) -> bool {
+fn seems_ssh_provider_error(line: &str) -> bool {
     line.starts_with("ssh: ")
         || line.contains("Permission denied")
         || line.contains("Host key verification failed")
@@ -837,8 +996,8 @@ fn seems_pinggy_error(line: &str) -> bool {
         || line.contains("kex_exchange_identification")
 }
 
-fn record_pinggy_startup_error(startup_error: &Arc<StdMutex<Option<String>>>, line: &str) {
-    if !seems_pinggy_error(line) {
+fn record_ssh_provider_startup_error(startup_error: &Arc<StdMutex<Option<String>>>, line: &str) {
+    if !seems_ssh_provider_error(line) {
         return;
     }
 
@@ -863,6 +1022,20 @@ fn extract_pinggy_public_url(line: &str, regex: &Regex) -> Option<String> {
         if host.ends_with(".pinggy.link")
             || (host.ends_with(".pinggy.io") && !host.starts_with("dashboard."))
         {
+            Some(url.to_string())
+        } else {
+            None
+        }
+    })
+}
+
+fn extract_serveo_public_url(line: &str, regex: &Regex) -> Option<String> {
+    let clean_line = strip_ansi(line);
+    regex.find_iter(&clean_line).find_map(|capture| {
+        let url = capture.as_str();
+        let parsed = Url::parse(url).ok()?;
+        let host = parsed.host_str()?;
+        if host.ends_with(".serveo.net") || host.ends_with(".serveousercontent.com") {
             Some(url.to_string())
         } else {
             None
@@ -896,7 +1069,7 @@ fn format_auto_startup_error(attempts: &[ProviderAttempt]) -> String {
     }
 
     message.push_str(
-        "\nHints: install cloudflared, ensure ssh is available for Pinggy, set BEAM_RELAY_URL or run beam-relay, or use --local.",
+        "\nHints: install cloudflared, ensure ssh is available for Pinggy, try --provider serveo for another SSH tunnel option, set BEAM_RELAY_URL or run beam-relay, or use --local.",
     );
     message
 }
@@ -907,6 +1080,52 @@ fn cloudflared_command() -> String {
 
 fn ssh_command() -> String {
     std::env::var("BEAM_SSH_BIN").unwrap_or_else(|_| "ssh".to_string())
+}
+
+fn ssh_tunnel_command(batch_mode: bool) -> Command {
+    let mut command = Command::new(ssh_command());
+    command
+        .arg("-T")
+        .arg("-o")
+        .arg("ExitOnForwardFailure=yes")
+        .arg("-o")
+        .arg("StrictHostKeyChecking=no")
+        .arg("-o")
+        .arg("UserKnownHostsFile=/dev/null")
+        .arg("-o")
+        .arg("ConnectTimeout=15")
+        .arg("-o")
+        .arg("ServerAliveInterval=30")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if batch_mode {
+        command.arg("-o").arg("BatchMode=yes");
+    }
+    command
+}
+
+fn strip_ansi(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    let mut chars = value.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' {
+            if matches!(chars.peek(), Some('[')) {
+                chars.next();
+                while let Some(next) = chars.next() {
+                    if ('@'..='~').contains(&next) {
+                        break;
+                    }
+                }
+                continue;
+            }
+        }
+
+        output.push(ch);
+    }
+
+    output
 }
 
 fn relay_base_url() -> Result<Url> {
@@ -984,8 +1203,8 @@ impl ProviderAttempt {
 mod tests {
     use super::{
         ProviderKind, TunnelProvider, auto_provider_order, cloudflared_error_priority,
-        extract_pinggy_public_url, extract_public_url, format_auto_startup_error,
-        record_cloudflared_startup_error, seems_cloudflared_error,
+        extract_pinggy_public_url, extract_public_url, extract_serveo_public_url,
+        format_auto_startup_error, record_cloudflared_startup_error, seems_cloudflared_error,
     };
     use crate::relay::RelayState;
     use axum::{Router, routing::get};
@@ -1047,6 +1266,20 @@ mod tests {
         assert_eq!(
             extract_pinggy_public_url(line, &regex).as_deref(),
             Some("https://qvlow-79-117-198-230.a.free.pinggy.link")
+        );
+    }
+
+    #[test]
+    fn parses_public_serveo_url() {
+        let regex = Regex::new(
+            r"https://[A-Za-z0-9._-]+(?:\.[A-Za-z0-9._-]+)*\.(?:serveo\.net|serveousercontent\.com)",
+        )
+        .unwrap();
+        let line =
+            "\u{1b}[32mForwarding HTTP traffic from https://beam-preview.serveousercontent.com";
+        assert_eq!(
+            extract_serveo_public_url(line, &regex).as_deref(),
+            Some("https://beam-preview.serveousercontent.com")
         );
     }
 
@@ -1183,6 +1416,46 @@ mod tests {
 
         assert!(error.contains("Could not resolve hostname"));
         assert!(!error.contains("cloudflared"));
+    }
+
+    #[tokio::test]
+    async fn explicit_serveo_uses_ssh_tunnel() {
+        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let dir = TempDir::new().unwrap();
+        let args_file = dir.path().join("serveo-args.txt");
+        let ssh = write_script(
+            &dir,
+            "ssh",
+            &format!(
+                "printf '%s\n' \"$@\" > '{}'\necho '\033[32mForwarding HTTP traffic from https://beam-preview.serveousercontent.com'\nexec sleep 1",
+                args_file.display()
+            ),
+        );
+        let previous_ssh = std::env::var_os("BEAM_SSH_BIN");
+
+        unsafe {
+            std::env::set_var("BEAM_SSH_BIN", &ssh);
+        }
+
+        let started = ProviderKind::Serveo
+            .start("http://127.0.0.1:3000")
+            .await
+            .unwrap();
+
+        restore_env_var("BEAM_SSH_BIN", previous_ssh);
+
+        assert_eq!(started.provider, ProviderKind::Serveo);
+        assert_eq!(
+            started.handle.public_url,
+            "https://beam-preview.serveousercontent.com"
+        );
+        started.handle.shutdown().await;
+
+        let args = fs::read_to_string(args_file).unwrap();
+        assert!(args.contains("PreferredAuthentications=keyboard-interactive"));
+        assert!(args.contains("KbdInteractiveAuthentication=yes"));
+        assert!(args.contains("PubkeyAuthentication=no"));
+        assert!(args.contains("IdentityAgent=none"));
     }
 
     #[tokio::test]
