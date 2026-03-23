@@ -1,6 +1,7 @@
 pub mod access;
 pub mod cli;
 pub mod content;
+pub mod download_page;
 pub mod doctor;
 pub mod duration;
 pub mod provider;

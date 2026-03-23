@@ -1,7 +1,12 @@
 use anyhow::Result;
 use axum_server::tls_rustls::RustlsConfig;
 use rcgen::generate_simple_self_signed;
+use rustls::crypto::ring;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+pub fn install_crypto_provider() {
+    let _ = ring::default_provider().install_default();
+}
 
 pub async fn build_local_tls_config(host_ip: IpAddr) -> Result<RustlsConfig> {
     let subject_alt_names = local_subject_alt_names(host_ip);

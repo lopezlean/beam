@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>__PAGE_TITLE__</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0f110a;
+      --surface: rgba(21, 24, 16, 0.95);
+      --surface-soft: rgba(17, 19, 13, 0.88);
+      --surface-strong: #21241b;
+      --line: rgba(162, 176, 123, 0.18);
+      --line-strong: rgba(210, 239, 31, 0.22);
+      --text: #ebe9d6;
+      --muted: #adb19f;
+      --muted-strong: #7f8471;
+      --primary: #d2ef1f;
+      --accent: #00ff6a;
+      --warning: #ffd16a;
+      --shadow: 0 28px 72px rgba(0, 0, 0, 0.36);
+      --radius-xl: 28px;
+      --radius-lg: 20px;
+      --radius-md: 16px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(210, 239, 31, 0.09), transparent 26%),
+        radial-gradient(circle at top right, rgba(0, 255, 106, 0.07), transparent 18%),
+        linear-gradient(180deg, #11120b 0%, #0d0f08 100%);
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+      background-size: 24px 24px;
+      opacity: 0.18;
+      mask-image: radial-gradient(circle at center, black 18%, transparent 78%);
+    }
+    main {
+      width: min(100%, 780px);
+      margin: 0 auto;
+      padding: max(16px, env(safe-area-inset-top)) 16px max(20px, env(safe-area-inset-bottom));
+      display: grid;
+      min-height: 100vh;
+      place-items: center;
+    }
+    .card {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      backdrop-filter: blur(18px);
+    }
+    .hero {
+      padding: 22px 20px 18px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      background:
+        linear-gradient(180deg, rgba(210, 239, 31, 0.08), transparent 80%),
+        var(--surface-soft);
+    }
+    .eyebrow {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+    .brand {
+      color: var(--primary);
+      font-family: "Space Grotesk", Inter, ui-sans-serif, system-ui, sans-serif;
+      font-size: 1.05rem;
+      font-weight: 700;
+      letter-spacing: -0.04em;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      background: rgba(255, 255, 255, 0.03);
+    }
+    h1 {
+      margin: 0;
+      font-family: "Space Grotesk", Inter, ui-sans-serif, system-ui, sans-serif;
+      font-size: clamp(2rem, 7vw, 3.2rem);
+      font-weight: 700;
+      line-height: 0.98;
+      letter-spacing: -0.05em;
+      text-transform: uppercase;
+    }
+    .lead {
+      margin: 14px 0 0;
+      color: var(--muted);
+      font-size: 0.98rem;
+      line-height: 1.65;
+    }
+    .status-rail {
+      display: grid;
+      gap: 10px;
+      margin-top: 18px;
+    }
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 44px;
+      padding: 0 14px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--muted);
+      font-size: 0.86rem;
+    }
+    .status-pill strong {
+      color: var(--text);
+      font-weight: 700;
+    }
+    .quick-action {
+      display: grid;
+      gap: 12px;
+      margin-top: 16px;
+      padding: 14px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-lg);
+      background: linear-gradient(180deg, rgba(210, 239, 31, 0.07), rgba(255, 255, 255, 0.02));
+    }
+    .quick-action__button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      min-height: 46px;
+      padding: 0 16px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #d2ef1f 0%, #f4ff8a 100%);
+      color: #1b1f06;
+      font-family: "Space Grotesk", Inter, ui-sans-serif, system-ui, sans-serif;
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      text-decoration: none;
+    }
+    .quick-action__button--ghost {
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text);
+      border: 1px solid var(--line);
+    }
+    .document {
+      padding: 18px 16px 0;
+    }
+    .sheet {
+      display: grid;
+      gap: 10px;
+      margin: 0;
+    }
+    .sheet__row {
+      display: grid;
+      gap: 8px;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      background: rgba(11, 12, 9, 0.34);
+    }
+    .sheet__label {
+      margin: 0;
+      color: var(--muted-strong);
+      font-size: 0.74rem;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+    .sheet__value {
+      margin: 0;
+      color: var(--text);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.92rem;
+      line-height: 1.6;
+      overflow-wrap: anywhere;
+    }
+    .sheet__value--accent {
+      color: var(--primary);
+    }
+    .action-card {
+      padding: 18px 16px 0;
+    }
+    .action-card--hero {
+      margin-top: 16px;
+    }
+    .download-form {
+      display: grid;
+      gap: 12px;
+      padding: 16px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-lg);
+      background: linear-gradient(180deg, rgba(210, 239, 31, 0.05), rgba(255, 255, 255, 0.02));
+    }
+    .form__label {
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .form__input,
+    .form__button {
+      width: 100%;
+      min-height: 54px;
+      border-radius: 16px;
+      font: inherit;
+    }
+    .form__input {
+      border: 1px solid var(--line);
+      padding: 0 16px;
+      background: rgba(5, 7, 5, 0.6);
+      color: var(--text);
+    }
+    .form__button {
+      border: 0;
+      padding: 0 18px;
+      background: linear-gradient(135deg, #d2ef1f 0%, #f4ff8a 100%);
+      color: #1b1f06;
+      font-family: "Space Grotesk", Inter, ui-sans-serif, system-ui, sans-serif;
+      font-size: 0.92rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+    .form__button:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+    .action-card__hint {
+      margin: 12px 2px 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+    .notice-stack {
+      display: grid;
+      gap: 10px;
+      padding: 18px 16px 0;
+    }
+    .notice {
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.65;
+    }
+    .notice--accent {
+      color: var(--primary);
+      border-color: var(--line-strong);
+    }
+    .notice--warning {
+      color: var(--warning);
+    }
+    .footer {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 18px 16px 20px;
+      color: var(--muted-strong);
+      font-size: 0.82rem;
+      line-height: 1.5;
+    }
+    .footer a {
+      color: var(--primary);
+      text-decoration: none;
+    }
+    @media (min-width: 720px) {
+      .hero {
+        padding: 26px 24px 20px;
+      }
+      .status-rail {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .quick-action {
+        grid-template-columns: auto auto;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 18px;
+      }
+      .quick-action__button {
+        width: auto;
+        min-width: 188px;
+      }
+      .document,
+      .notice-stack,
+      .footer {
+        padding-left: 24px;
+        padding-right: 24px;
+      }
+      .sheet__row {
+        grid-template-columns: 132px minmax(0, 1fr);
+        align-items: start;
+      }
+      .download-form {
+        padding: 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <article class="card">
+      <header class="hero">
+        <div class="eyebrow">
+          <a class="brand" href="__PROJECT_URL__" rel="noopener noreferrer" target="_blank">Beam ⚡️</a>
+          <span class="badge">__BADGE__</span>
+        </div>
+        <h1>__DISPLAY_NAME__</h1>
+        <p class="lead">__LEAD__</p>
+        <div class="status-rail">
+          <div class="status-pill">Expires in <strong id="ttl">__TTL__</strong></div>
+          <div class="status-pill">__MODE_LABEL__ · __STATE__</div>
+        </div>
+        __ACTION_PANEL__
+      </header>
+
+      <section class="document">
+        <dl class="sheet">__SUMMARY_ROWS__</dl>
+      </section>
+
+      __NOTICES__
+
+      <footer class="footer">
+        <span>Zero-install browser download</span>
+        <a href="__PROJECT_URL__" rel="noopener noreferrer" target="_blank">Project page</a>
+        <span>Beam destroys this session automatically</span>
+      </footer>
+    </article>
+  </main>
+
+  <script>
+    const ttlNode = document.getElementById("ttl");
+    const button = document.getElementById("download-button");
+    const expiry = __EXPIRY_SECONDS__ * 1000;
+    const format = (ms) => {
+      if (ms <= 0) return "expired";
+      const total = Math.floor(ms / 1000);
+      const h = Math.floor(total / 3600);
+      const m = Math.floor((total % 3600) / 60);
+      const s = total % 60;
+      const parts = [];
+      if (h) parts.push(`${h}h`);
+      if (m) parts.push(`${m}m`);
+      if (s || !parts.length) parts.push(`${s}s`);
+      return parts.join(" ");
+    };
+    const tick = () => {
+      const remaining = expiry - Date.now();
+      ttlNode.textContent = format(remaining);
+      if (remaining <= 0 && button) {
+        button.disabled = true;
+        button.textContent = "Session expired";
+      }
+    };
+    tick();
+    setInterval(tick, 1000);
+  </script>
+</body>
+</html>

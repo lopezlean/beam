@@ -1,7 +1,8 @@
 use crate::{
     access::{AccessPolicy, verify_pin},
     content::ContentSource,
-    duration::{format_duration, remaining_until},
+    download_page,
+    duration::remaining_until,
     provider::ProviderKind,
 };
 use anyhow::Result;
@@ -18,7 +19,6 @@ use axum::{
     response::{Html, IntoResponse, Response},
     routing::get,
 };
-use indicatif::HumanBytes;
 use serde::Deserialize;
 use std::{
     sync::Arc,
@@ -66,7 +66,7 @@ impl ResolvedSendMode {
         }
     }
 
-    fn badge_label(&self) -> &'static str {
+    pub(crate) fn badge_label(&self) -> &'static str {
         match self {
             Self::Global { .. } => "GLOBAL",
             Self::Local { .. } => "LAN",
@@ -234,254 +234,7 @@ impl SharedSession {
         }
 
         let snapshot = self.snapshot().await;
-        let badge = snapshot.mode.badge_label();
-        let pin_block = if snapshot.requires_pin {
-            r#"<label for="pin">PIN</label><input id="pin" name="pin" placeholder="123456" inputmode="numeric" />"#
-        } else {
-            ""
-        };
-        let size_label = match snapshot.content_length {
-            Some(size) => HumanBytes(size).to_string(),
-            None => format!("{} input", HumanBytes(snapshot.input_size)),
-        };
-        let expiry_seconds = snapshot
-            .expires_at
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_else(|_| Duration::ZERO)
-            .as_secs();
-        let remaining = format_duration(snapshot.remaining);
-        let warnings = if snapshot.warnings.is_empty() {
-            String::new()
-        } else {
-            format!("<p class=\"warning\">{}</p>", snapshot.warnings.join(" · "))
-        };
-        let secondary_link = snapshot
-            .secondary_link
-            .as_ref()
-            .zip(snapshot.secondary_link_label)
-            .map(|(link, label)| {
-                format!(
-                    r#"<div class="link-card"><span>{label}</span><a href="{link}">{link}</a></div>"#
-                )
-            })
-            .unwrap_or_default();
-        let local_notice = if snapshot.mode.is_local() {
-            r#"<p class="warning">Local mode uses HTTP for convenience. Use --global or --pin for sensitive files.</p>
-    <p class="small">The encrypted LAN link uses a temporary self-signed certificate and may show a browser warning.</p>"#
-                .to_string()
-        } else {
-            String::new()
-        };
-
-        Ok(format!(
-            r#"<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Beam · {name}</title>
-  <style>
-    :root {{
-      color-scheme: light dark;
-      --bg: #09111b;
-      --card: rgba(17, 29, 46, 0.92);
-      --line: rgba(148, 163, 184, 0.18);
-      --text: #ecf4ff;
-      --muted: #9eb0c5;
-      --accent: #ffbe55;
-      --ok: #7bdcb5;
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{
-      margin: 0;
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
-      font-family: ui-rounded, system-ui, sans-serif;
-      background:
-        radial-gradient(circle at top left, rgba(255,190,85,0.18), transparent 32%),
-        radial-gradient(circle at bottom right, rgba(123,220,181,0.18), transparent 26%),
-        linear-gradient(135deg, #06111d 0%, #0b1726 48%, #050b12 100%);
-      color: var(--text);
-      padding: 24px;
-    }}
-    .card {{
-      width: min(100%, 520px);
-      border: 1px solid var(--line);
-      background: var(--card);
-      border-radius: 24px;
-      padding: 28px;
-      box-shadow: 0 28px 72px rgba(0,0,0,0.35);
-      backdrop-filter: blur(20px);
-    }}
-    .eyebrow {{
-      display: inline-flex;
-      gap: 8px;
-      align-items: center;
-      color: var(--accent);
-      font-size: 0.78rem;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      margin-bottom: 12px;
-    }}
-    h1 {{
-      margin: 0 0 8px;
-      font-size: clamp(2rem, 7vw, 2.7rem);
-      line-height: 1.05;
-    }}
-    p {{
-      color: var(--muted);
-      line-height: 1.55;
-    }}
-    .meta {{
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
-      margin: 20px 0;
-    }}
-    .meta div {{
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      padding: 14px 16px;
-      background: rgba(10, 19, 31, 0.6);
-    }}
-    .meta span {{
-      display: block;
-      color: var(--muted);
-      font-size: 0.82rem;
-      margin-bottom: 6px;
-    }}
-    form {{
-      display: grid;
-      gap: 12px;
-      margin-top: 22px;
-    }}
-    label {{
-      font-size: 0.88rem;
-      color: var(--muted);
-    }}
-    input, button {{
-      width: 100%;
-      border-radius: 16px;
-      border: 1px solid var(--line);
-      padding: 14px 16px;
-      font: inherit;
-    }}
-    input {{
-      background: rgba(4, 9, 17, 0.82);
-      color: var(--text);
-    }}
-    button {{
-      background: linear-gradient(135deg, #ffbe55 0%, #ffd07a 100%);
-      color: #231300;
-      font-weight: 700;
-      cursor: pointer;
-    }}
-    .warning {{
-      margin-top: 12px;
-      color: #ffd589;
-    }}
-    .small {{
-      font-size: 0.9rem;
-    }}
-    .links {{
-      display: grid;
-      gap: 12px;
-      margin-top: 20px;
-    }}
-    .link-card {{
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      padding: 14px 16px;
-      background: rgba(10, 19, 31, 0.6);
-    }}
-    .link-card span {{
-      display: block;
-      color: var(--muted);
-      font-size: 0.82rem;
-      margin-bottom: 6px;
-    }}
-    .link-card a {{
-      color: var(--text);
-      word-break: break-word;
-      text-decoration: none;
-    }}
-    .footer {{
-      margin-top: 18px;
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      color: var(--muted);
-      font-size: 0.88rem;
-    }}
-  </style>
-</head>
-<body>
-  <article class="card">
-    <div class="eyebrow">Beam ⚡️ <span>{badge}</span></div>
-    <h1>{name}</h1>
-    <p>Zero-install download. This Beam session self-destructs in <strong id="ttl">{remaining}</strong>.</p>
-    <section class="meta">
-      <div><span>Payload</span><strong>{kind}</strong></div>
-      <div><span>Size</span><strong>{size}</strong></div>
-      <div><span>Downloads</span><strong>{downloads}</strong></div>
-      <div><span>Transport</span><strong>{transport}</strong></div>
-    </section>
-    <section class="links">
-      <div class="link-card"><span>{primary_label}</span><a href="{primary_link}">{primary_link}</a></div>
-      {secondary_link}
-    </section>
-    <form method="get" action="/download/{token}">
-      {pin_block}
-      <button type="submit">Download now</button>
-    </form>
-    {warnings}
-    {local_notice}
-    <div class="footer">
-      <span>{status}</span>
-      <span>{once_label}</span>
-    </div>
-  </article>
-  <script>
-    const ttlNode = document.getElementById("ttl");
-    const expiry = {expiry_seconds} * 1000;
-    const format = (ms) => {{
-      if (ms <= 0) return "expired";
-      const total = Math.floor(ms / 1000);
-      const h = Math.floor(total / 3600);
-      const m = Math.floor((total % 3600) / 60);
-      const s = total % 60;
-      const parts = [];
-      if (h) parts.push(`${{h}}h`);
-      if (m) parts.push(`${{m}}m`);
-      if (s || !parts.length) parts.push(`${{s}}s`);
-      return parts.join(" ");
-    }};
-    setInterval(() => {{
-      ttlNode.textContent = format(expiry - Date.now());
-    }}, 1000);
-  </script>
-</body>
-</html>"#,
-            name = snapshot.display_name,
-            badge = badge,
-            remaining = remaining,
-            kind = snapshot.content_kind,
-            size = size_label,
-            downloads = snapshot.completed_downloads,
-            transport = snapshot.transport_label,
-            primary_label = snapshot.primary_link_label,
-            primary_link = snapshot.primary_link,
-            secondary_link = secondary_link,
-            token = snapshot.token,
-            status = snapshot.provider_status,
-            local_notice = local_notice,
-            once_label = if snapshot.once {
-                "burn after reading"
-            } else {
-                "available until expiry"
-            },
-        ))
+        Ok(download_page::render(&snapshot))
     }
 
     async fn begin_download(

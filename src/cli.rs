@@ -143,6 +143,7 @@ struct LocalBindings {
 }
 
 pub async fn run() -> Result<()> {
+    tls::install_crypto_provider();
     init_tracing();
     let cli = Cli::parse();
 
