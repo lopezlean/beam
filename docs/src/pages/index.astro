@@ -1,0 +1,28 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import TopNav from "../components/TopNav.astro";
+import HeroSection from "../components/HeroSection.astro";
+import WorkflowSection from "../components/WorkflowSection.astro";
+import FeaturesSection from "../components/FeaturesSection.astro";
+import InstallSection from "../components/InstallSection.astro";
+import ExamplesSection from "../components/ExamplesSection.astro";
+import UsageSection from "../components/UsageSection.astro";
+import FaqSection from "../components/FaqSection.astro";
+import CtaSection from "../components/CtaSection.astro";
+import SiteFooter from "../components/SiteFooter.astro";
+---
+
+<BaseLayout>
+  <TopNav />
+  <main class="page">
+    <HeroSection />
+    <WorkflowSection />
+    <FeaturesSection />
+    <InstallSection />
+    <ExamplesSection />
+    <UsageSection />
+    <FaqSection />
+    <CtaSection />
+  </main>
+  <SiteFooter />
+</BaseLayout>

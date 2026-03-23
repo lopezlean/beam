@@ -1,4 +1,7 @@
 /target/
+/docs/.astro/
+/docs/node_modules/
+/docs/dist/
 
 # macOS
 .DS_Store

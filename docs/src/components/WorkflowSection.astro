@@ -1,0 +1,37 @@
+---
+import { workflowSteps } from "../data/site";
+---
+
+<section class="workflow">
+  <div class="shell workflow__grid">
+    {
+      workflowSteps.map((item, index) => (
+        <article class="workflow__card">
+          <span class="workflow__step">{item.step}</span>
+          <h2>{item.title}</h2>
+          <p>{item.body}</p>
+          <div class="workflow__panel">
+            <div class="workflow__panel-header">
+              <span class="material-symbols-outlined">
+                {index === 0 ? "terminal" : "language"}
+              </span>
+              <span>{index === 0 ? "Local CLI" : "Browser Interface"}</span>
+            </div>
+            {index === 0 ? (
+              <code>$ beam send ./dist.zip --ttl 5m</code>
+            ) : (
+              <>
+                <div class="workflow__download">
+                  <span class="material-symbols-outlined">folder_zip</span>
+                  <strong>dist.zip (4.2 MB)</strong>
+                  <span class="workflow__badge">READY</span>
+                </div>
+                <small>AUTO-DESTRUCT IN: 04:59</small>
+              </>
+            )}
+          </div>
+        </article>
+      ))
+    }
+  </div>
+</section>

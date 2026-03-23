@@ -1,0 +1,19 @@
+---
+import { faqItems } from "../data/site";
+---
+
+<section class="faq" id="faq">
+  <div class="shell faq__inner">
+    <h2>Technical_FAQ</h2>
+    <div class="faq__stack">
+      {
+        faqItems.map((item) => (
+          <article class="faq__item">
+            <h3>{item.question}</h3>
+            <p>{item.answer}</p>
+          </article>
+        ))
+      }
+    </div>
+  </div>
+</section>

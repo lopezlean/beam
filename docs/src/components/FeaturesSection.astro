@@ -1,0 +1,27 @@
+---
+import { featureCards } from "../data/site";
+---
+
+<section class="section shell" id="features">
+  <div class="section__heading">
+    <h2>Core_Specs</h2>
+    <span></span>
+  </div>
+
+  <div class="feature-grid">
+    {
+      featureCards.map((feature, index) => (
+        <article class:list={[
+          "feature-card",
+          index === 3 && "feature-card--wide"
+        ]}>
+          <span class="material-symbols-outlined feature-card__icon">
+            {feature.icon}
+          </span>
+          <h3>{feature.title}</h3>
+          <p>{feature.body}</p>
+        </article>
+      ))
+    }
+  </div>
+</section>

@@ -1,0 +1,24 @@
+---
+import { siteMeta } from "../data/site";
+---
+
+<footer class="footer">
+  <div class="shell footer__inner">
+    <div class="footer__brand">
+      <strong>BEAM_PROTOCOL</strong>
+      <p>Ephemeral terminal-first file sharing.</p>
+    </div>
+
+    <div class="footer__links">
+      <a href={siteMeta.repository}>GitHub</a>
+      <a href={siteMeta.changelog}>Changelog</a>
+      <a href={siteMeta.tap}>Homebrew tap</a>
+    </div>
+
+    <div class="footer__icons" aria-hidden="true">
+      <span class="material-symbols-outlined">terminal</span>
+      <span class="material-symbols-outlined">bolt</span>
+      <span class="material-symbols-outlined">shield</span>
+    </div>
+  </div>
+</footer>

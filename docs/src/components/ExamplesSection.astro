@@ -1,0 +1,22 @@
+---
+import { exampleCommands } from "../data/site";
+---
+
+<section class="section shell" id="examples">
+  <div class="section__heading">
+    <h2>Examples</h2>
+    <span></span>
+  </div>
+
+  <div class="examples-grid">
+    {
+      exampleCommands.map((example) => (
+        <article class="example-card">
+          <h3>{example.title}</h3>
+          <pre><code>{example.command}</code></pre>
+          <p>{example.note}</p>
+        </article>
+      ))
+    }
+  </div>
+</section>

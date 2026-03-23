@@ -1,0 +1,61 @@
+---
+interface SessionEntry {
+  label: string;
+  value: string;
+  accent?: boolean;
+}
+
+interface Props {
+  frameTitle?: string;
+  title: string;
+  subtitle: string;
+  entries: SessionEntry[];
+  qr: string;
+}
+
+const {
+  frameTitle = "beam session - 80x24",
+  title,
+  subtitle,
+  entries,
+  qr,
+} = Astro.props;
+---
+
+<article class="terminal-panel">
+  <div class="terminal-panel__bar">
+    <span></span>
+    <span></span>
+    <span></span>
+    <p>{frameTitle}</p>
+  </div>
+
+  <div class="terminal-panel__body">
+    <section class="session-document">
+      <header class="session-document__header">
+        <h2>{title}</h2>
+        <p>{subtitle}</p>
+      </header>
+
+      <dl class="session-document__meta">
+        {
+          entries.map((entry) => (
+            <div class="session-document__row">
+              <dt>{entry.label}</dt>
+              <dd
+                class:list={[entry.accent && "session-document__value--accent"]}
+              >
+                {entry.value}
+              </dd>
+            </div>
+          ))
+        }
+      </dl>
+
+      <pre
+        class="session-document__qr">
+        <div set:html={qr} />
+      </pre>
+    </section>
+  </div>
+</article>

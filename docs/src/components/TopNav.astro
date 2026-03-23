@@ -1,0 +1,25 @@
+---
+import { navLinks, siteMeta } from "../data/site";
+---
+
+<header class="topbar">
+  <nav class="shell topbar__inner" aria-label="Primary">
+    <a class="brand" href="./">
+      <span class="brand__word">BEAM</span>
+    </a>
+
+    <div class="topbar__links">
+      {
+        navLinks.map((link) => (
+          <a href={link.href} class="topbar__link">
+            {link.label}
+          </a>
+        ))
+      }
+    </div>
+
+    <a class="button button--solid" href={siteMeta.repository}>
+      Get Started _
+    </a>
+  </nav>
+</header>

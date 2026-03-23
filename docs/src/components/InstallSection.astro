@@ -1,0 +1,38 @@
+---
+import { installCards } from "../data/site";
+---
+
+<section class="install" id="install">
+  <div class="shell install__grid">
+    <div>
+      <h2 class="section-title">Installation</h2>
+      <p class="section-copy">
+        Beam is written in Rust for speed and safety. Install it with Homebrew
+        or build it directly from source.
+      </p>
+
+      <div class="install__stack">
+        {
+          installCards.map((card) => (
+            <article class="install-card">
+              <div>
+                <p class="install-card__label">{card.label}</p>
+                <pre><code>{card.command}</code></pre>
+                <p class="install-card__note">{card.note}</p>
+              </div>
+              <span class="material-symbols-outlined">terminal</span>
+            </article>
+          ))
+        }
+      </div>
+    </div>
+
+    <aside class="install__metric">
+      <div class="install__metric-frame"></div>
+      <div class="install__metric-card">
+        <div class="install__metric-value">30m</div>
+        <p>Default session TTL</p>
+      </div>
+    </aside>
+  </div>
+</section>

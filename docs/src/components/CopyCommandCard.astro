@@ -1,0 +1,71 @@
+---
+interface Props {
+  label?: string;
+  command: string;
+}
+
+const { label = "SHELL_PROMPT", command } = Astro.props;
+---
+
+<div class="command-card" data-command-card>
+  <div class="command-card__meta">
+    <span>{label}</span>
+    <button
+      class="command-card__copy"
+      type="button"
+      data-copy-command={command}
+      aria-label={`Copy command: ${command}`}
+    >
+      <span data-copy-label>Copy</span>
+      <span class="material-symbols-outlined" aria-hidden="true">content_copy</span>
+    </button>
+  </div>
+  <code class="command-card__command">
+    $ {command}<span class="command-card__cursor">_</span>
+  </code>
+</div>
+
+<script>
+  const fallbackCopy = async (value) => {
+    const textarea = document.createElement("textarea");
+    textarea.value = value;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "absolute";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    textarea.remove();
+  };
+
+  document.querySelectorAll("[data-copy-command]").forEach((button) => {
+    if (button.dataset.bound === "true") return;
+    button.dataset.bound = "true";
+
+    button.addEventListener("click", async () => {
+      const command = button.getAttribute("data-copy-command") ?? "";
+      const label = button.querySelector("[data-copy-label]");
+      const icon = button.querySelector(".material-symbols-outlined");
+
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(command);
+        } else {
+          await fallbackCopy(command);
+        }
+        if (label) label.textContent = "Copied";
+        if (icon) icon.textContent = "check";
+        button.classList.add("is-copied");
+      } catch {
+        if (label) label.textContent = "Failed";
+        if (icon) icon.textContent = "error";
+      }
+
+      window.setTimeout(() => {
+        if (label) label.textContent = "Copy";
+        if (icon) icon.textContent = "content_copy";
+        button.classList.remove("is-copied");
+      }, 1800);
+    });
+  });
+</script>

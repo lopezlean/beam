@@ -1,0 +1,39 @@
+---
+import { manualEntries } from "../data/site";
+---
+
+<section class="section shell" id="usage">
+  <div class="usage__header">
+    <h2>Usage_Manual</h2>
+    <span>beam --help</span>
+  </div>
+
+  <div class="usage__stack">
+    {
+      manualEntries.map((entry) => (
+        <article class="manual-entry">
+          <div class="manual-entry__copy">
+            <h3>
+              <span>/</span>
+              {entry.title}
+            </h3>
+            <p>{entry.description}</p>
+            <div class="manual-entry__flags">
+              <p>FLAGS</p>
+              <ul>
+                {entry.flags.map((flag) => <li>{flag}</li>)}
+              </ul>
+            </div>
+          </div>
+          <div class="manual-entry__code">
+            <div class="manual-entry__codebar">example.sh</div>
+            <div class="manual-entry__codebody">
+              <code>{entry.command}</code>
+              <p>{entry.detail}</p>
+            </div>
+          </div>
+        </article>
+      ))
+    }
+  </div>
+</section>

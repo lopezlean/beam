@@ -1,0 +1,46 @@
+---
+import { heroSessionDocument, siteMeta } from "../data/site";
+import CopyCommandCard from "./CopyCommandCard.astro";
+import SessionDocumentCard from "./SessionDocumentCard.astro";
+
+const installCommand = "brew tap lopezlean/beam && brew install beam";
+---
+
+<section class="hero shell">
+  <div class="hero__copy">
+    <div class="hero__version">VERSION {siteMeta.version} // STABLE</div>
+    <h1 class="hero__title">
+      BEAM<span class="hero__dot"
+        ><svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          width="100"
+          height="100"
+        >
+          <path
+            d="M13 2L3 14h7v8l11-12h-7l4-8z"
+            fill="currentColor"
+            stroke="currentStroke"
+            stroke-width="1"
+            stroke-linejoin="round"></path>
+        </svg>
+      </span>
+    </h1>
+    <p class="hero__lead">
+      Ephemeral, terminal-first file sharing. Send assets directly from your
+      command line to any browser without dashboard bloat.
+    </p>
+
+    <CopyCommandCard label="INSTALL_COMMAND" command={installCommand} />
+  </div>
+
+  <div class="hero__visual">
+    <div class="hero__glow" aria-hidden="true"></div>
+    <SessionDocumentCard
+      title={heroSessionDocument.title}
+      subtitle={heroSessionDocument.subtitle}
+      entries={heroSessionDocument.entries}
+      qr={heroSessionDocument.qr}
+    />
+  </div>
+</section>
