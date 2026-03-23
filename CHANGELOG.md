@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-03-23
+
+### Added
+- Astro-powered project site for GitHub Pages.
+- `AGENTS.md` with repository-specific guidance for AI agents.
+
+### Changed
+- Extracted the download page into a dedicated renderer and HTML template instead of building it inline inside `session.rs`.
+- Refined the mobile download page so the primary action sits at the top and better matches Beam's current visual language.
+
+### Fixed
+- Local HTTPS startup now installs Rustls' `ring` crypto provider explicitly, avoiding runtime failures when serving the secondary TLS endpoint.
+- Cleaned up the download page action layout to remove redundant nested containers and duplicate calls to action.
+
 ## [0.1.0] - 2026-03-22
 
 ### Added
@@ -38,7 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial Beam release with ephemeral file sharing, QR output, TTL, `--once`, PIN protection, folder ZIP streaming, and local/global send flows.
 
-[Unreleased]: https://github.com/lopezlean/beam/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/lopezlean/beam/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/lopezlean/beam/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/lopezlean/beam/compare/v0.0.2...v0.1.0
 [0.0.2]: https://github.com/lopezlean/beam/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/lopezlean/beam/releases/tag/v0.0.1
