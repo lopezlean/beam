@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-23
+
+### Added
+- Pinggy-over-SSH as a no-account global provider and as the fallback after `cloudflared` in provider `auto`.
+- Serveo-over-SSH as an explicit global provider via `--provider serveo`.
+- Path-based session entry links under `/s/<token>` to keep public links working through providers that do not preserve query strings.
+
+### Changed
+- Global provider startup now reports ordered fallback attempts and exposes the actual provider chosen by `auto`.
+- The download page and generated public links now use path-based session routes, while preserving compatibility with the legacy `?token=` page format.
+- Provider code is now split into dedicated modules for `cloudflared`, `pinggy`, `serveo`, `native`, and shared SSH helpers.
+- `beam doctor` now reports SSH-backed provider readiness more clearly, including Serveo availability.
+
+### Fixed
+- Improved `cloudflared` startup diagnostics to surface rate-limit and startup errors instead of generic timeouts.
+- Serveo now uses the correct anonymous SSH flow without prompting for local key passphrases.
+- Serveo public URL parsing now handles ANSI-colored output and the real `*.serveousercontent.com` hostnames.
+
 ## [0.1.1] - 2026-03-23
 
 ### Added
@@ -52,7 +70,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial Beam release with ephemeral file sharing, QR output, TTL, `--once`, PIN protection, folder ZIP streaming, and local/global send flows.
 
-[Unreleased]: https://github.com/lopezlean/beam/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/lopezlean/beam/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/lopezlean/beam/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/lopezlean/beam/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/lopezlean/beam/compare/v0.0.2...v0.1.0
 [0.0.2]: https://github.com/lopezlean/beam/compare/v0.0.1...v0.0.2

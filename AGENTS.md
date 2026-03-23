@@ -16,7 +16,7 @@ The receiver only needs a browser. The sender runs Beam in a terminal.
 
 ## Current release
 
-- Current version: `0.1.1`
+- Current version: `0.2.0`
 - Main binary: `beam`
 - Reference relay binary: `beam-relay`
 

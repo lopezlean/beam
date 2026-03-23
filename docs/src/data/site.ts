@@ -1,6 +1,6 @@
 export const siteMeta = {
   name: "Beam",
-  version: "0.1.1",
+  version: "0.2.0",
   title: "BEAM | Ephemeral Terminal-First File Sharing",
   description:
     "Beam is an ephemeral, terminal-first file sharing CLI for public and local transfers with QR codes, TTLs, PINs, and zero dashboard bloat.",
