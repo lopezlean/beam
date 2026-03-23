@@ -15,8 +15,8 @@ use regex::Regex;
 use reqwest::Client;
 use std::{
     process::{Command as StdCommand, Stdio},
-    sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    sync::{Arc, Mutex as StdMutex},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncRead, BufReader},
@@ -143,6 +143,7 @@ async fn start_cloudflared(local_url: &str) -> Result<TunnelHandle> {
     let (status_tx, status_rx) = watch::channel("Starting cloudflared tunnel".to_string());
     let (url_tx, mut url_rx) = mpsc::unbounded_channel();
     let url_sent = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let startup_error = Arc::new(StdMutex::new(None::<String>));
     let mut tasks = Vec::new();
 
     if let Some(stdout) = stdout {
@@ -151,6 +152,7 @@ async fn start_cloudflared(local_url: &str) -> Result<TunnelHandle> {
             status_tx.clone(),
             url_tx.clone(),
             url_sent.clone(),
+            startup_error.clone(),
         )));
     }
 
@@ -160,19 +162,43 @@ async fn start_cloudflared(local_url: &str) -> Result<TunnelHandle> {
             status_tx.clone(),
             url_tx.clone(),
             url_sent.clone(),
+            startup_error.clone(),
         )));
     }
 
-    let public_url = match tokio::time::timeout(Duration::from_secs(20), url_rx.recv()).await {
-        Ok(Some(url)) => url,
-        Ok(None) => {
-            shutdown_child(child.clone()).await;
-            bail!("cloudflared exited before returning a public URL")
+    drop(url_tx);
+
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let public_url = loop {
+        if let Ok(url) = url_rx.try_recv() {
+            break url;
         }
-        Err(_) => {
-            shutdown_child(child.clone()).await;
-            bail!("timed out waiting for cloudflared to expose a public URL")
+
+        {
+            let mut child = child.lock().await;
+            if let Some(status) = child.try_wait().context("failed to query cloudflared status")? {
+                let detail = startup_error
+                    .lock()
+                    .ok()
+                    .and_then(|slot| slot.clone())
+                    .unwrap_or_else(|| {
+                        format!("cloudflared exited before returning a public URL ({status})")
+                    });
+                bail!("{detail}");
+            }
         }
+
+        if Instant::now() >= deadline {
+            shutdown_child(child.clone()).await;
+            let detail = startup_error
+                .lock()
+                .ok()
+                .and_then(|slot| slot.clone())
+                .unwrap_or_else(|| "timed out waiting for cloudflared to expose a public URL".to_string());
+            bail!("{detail}");
+        }
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
     };
 
     let _ = status_tx.send(format!("cloudflared ready at {public_url}"));
@@ -420,6 +446,7 @@ async fn watch_cloudflared_output<R>(
     status_tx: watch::Sender<String>,
     url_tx: mpsc::UnboundedSender<String>,
     url_sent: Arc<std::sync::atomic::AtomicBool>,
+    startup_error: Arc<StdMutex<Option<String>>>,
 ) where
     R: AsyncRead + Unpin + Send + 'static,
 {
@@ -448,6 +475,8 @@ async fn watch_cloudflared_output<R>(
         let status = trimmed.chars().take(120).collect::<String>();
         let _ = status_tx.send(status);
 
+        record_cloudflared_startup_error(&startup_error, trimmed);
+
         if !url_sent.load(std::sync::atomic::Ordering::Acquire) {
             if let Some(url) = extract_public_url(trimmed, &regex) {
                 if url_sent
@@ -462,6 +491,46 @@ async fn watch_cloudflared_output<R>(
                     let _ = url_tx.send(url);
                 }
             }
+        }
+    }
+}
+
+fn seems_cloudflared_error(line: &str) -> bool {
+    line.contains(" ERR ")
+        || line.starts_with("ERR ")
+        || line.starts_with("failed ")
+        || line.starts_with("failed to ")
+}
+
+fn cloudflared_error_priority(line: &str) -> u8 {
+    if line.contains("status_code=") || line.contains("Too Many Requests") {
+        3
+    } else if line.contains(" ERR ") || line.starts_with("ERR ") {
+        2
+    } else if seems_cloudflared_error(line) {
+        1
+    } else {
+        0
+    }
+}
+
+fn record_cloudflared_startup_error(
+    startup_error: &Arc<StdMutex<Option<String>>>,
+    line: &str,
+) {
+    if !seems_cloudflared_error(line) {
+        return;
+    }
+
+    if let Ok(mut slot) = startup_error.lock() {
+        match slot.as_ref() {
+            None => *slot = Some(line.to_string()),
+            Some(current)
+                if cloudflared_error_priority(line) > cloudflared_error_priority(current) =>
+            {
+                *slot = Some(line.to_string())
+            }
+            _ => {}
         }
     }
 }
@@ -499,10 +568,14 @@ fn unix_now() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{ProviderKind, TunnelProvider, extract_public_url, resolve_auto_provider};
+    use super::{
+        ProviderKind, TunnelProvider, cloudflared_error_priority, extract_public_url,
+        record_cloudflared_startup_error, resolve_auto_provider, seems_cloudflared_error,
+    };
     use crate::relay::RelayState;
     use axum::{Router, routing::get};
     use regex::Regex;
+    use std::sync::{Arc, Mutex as StdMutex};
     use tokio::net::TcpListener;
     use url::Url;
 
@@ -525,6 +598,37 @@ mod tests {
             ProviderKind::Cloudflared
         );
         assert_eq!(ProviderKind::Native.resolve(), ProviderKind::Native);
+    }
+
+    #[test]
+    fn identifies_cloudflared_error_lines() {
+        assert!(seems_cloudflared_error(
+            "2026-03-23T10:50:38Z ERR Error unmarshaling QuickTunnel response"
+        ));
+        assert!(seems_cloudflared_error(
+            "failed to unmarshal quick Tunnel: invalid character 'e' looking for beginning of value"
+        ));
+        assert!(!seems_cloudflared_error(
+            "2026-03-23T10:50:38Z INF Requesting new quick Tunnel on trycloudflare.com..."
+        ));
+    }
+
+    #[test]
+    fn prefers_rate_limit_error_details() {
+        let error = Arc::new(StdMutex::new(None));
+
+        record_cloudflared_startup_error(
+            &error,
+            "failed to unmarshal quick Tunnel: invalid character 'e' looking for beginning of value",
+        );
+        record_cloudflared_startup_error(
+            &error,
+            "2026-03-23T10:50:38Z ERR Error unmarshaling QuickTunnel response: error code: 1015 error=\"invalid character 'e' looking for beginning of value\" status_code=\"429 Too Many Requests\"",
+        );
+
+        let stored = error.lock().unwrap().clone().unwrap();
+        assert!(stored.contains("429 Too Many Requests"));
+        assert_eq!(cloudflared_error_priority(&stored), 3);
     }
 
     #[tokio::test]

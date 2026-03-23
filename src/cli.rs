@@ -579,7 +579,7 @@ fn global_startup_error(
 ) -> anyhow::Error {
     match provider {
         ProviderKind::Cloudflared => anyhow!(
-            "Beam needs cloudflared for global sharing. Install it with brew install cloudflared, switch to the native relay with --provider native, or run beam send {} --local.\n\nDetails: {error}",
+            "Beam could not start cloudflared for global sharing. If cloudflared is missing, install it with brew install cloudflared. Otherwise switch to the native relay with --provider native, or run beam send {} --local.\n\nDetails: {error}",
             command.path.display(),
         ),
         ProviderKind::Native => anyhow!(
