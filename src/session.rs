@@ -343,6 +343,7 @@ impl SharedSession {
 pub fn build_router(session: Arc<SharedSession>) -> Router {
     Router::new()
         .route("/", get(page_handler))
+        .route("/s/{token}", get(page_path_handler))
         .route("/download/{token}", get(download_handler))
         .route("/healthz", get(health_handler))
         .with_state(session)
@@ -353,6 +354,16 @@ async fn page_handler(
     Query(query): Query<PageQuery>,
 ) -> Response {
     match session.build_page(&query.token).await {
+        Ok(page) => Html(page).into_response(),
+        Err(rejection) => rejection.into_response(),
+    }
+}
+
+async fn page_path_handler(
+    State(session): State<Arc<SharedSession>>,
+    Path(token): Path<String>,
+) -> Response {
+    match session.build_page(&token).await {
         Ok(page) => Html(page).into_response(),
         Err(rejection) => rejection.into_response(),
     }
@@ -643,6 +654,81 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         assert_eq!(&bytes[..], b"beam");
+    }
+
+    #[tokio::test]
+    async fn serves_page_from_token_path() {
+        let temp = tempdir().unwrap();
+        let file = temp.path().join("hello.txt");
+        fs::write(&file, b"beam").unwrap();
+        let content = ContentSource::inspect(&file, ArchiveFormat::Zip).unwrap();
+        let access = build_access_policy(Duration::from_secs(300), false, None);
+        let session = SharedSession::new(
+            "token123".to_string(),
+            content,
+            access.policy,
+            access.revealed_pin,
+            ResolvedSendMode::Local {
+                http_port: 8080,
+                https_port: 8081,
+            },
+            CancellationToken::new(),
+        );
+        session
+            .set_links(
+                "http://127.0.0.1:8080/s/token123".to_string(),
+                Some("https://127.0.0.1:8081/s/token123".to_string()),
+            )
+            .await;
+        let router = build_router(session);
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri("/s/token123")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains("http://127.0.0.1:8080/s/token123"));
+    }
+
+    #[tokio::test]
+    async fn keeps_query_page_route_for_backwards_compatibility() {
+        let temp = tempdir().unwrap();
+        let file = temp.path().join("hello.txt");
+        fs::write(&file, b"beam").unwrap();
+        let content = ContentSource::inspect(&file, ArchiveFormat::Zip).unwrap();
+        let access = build_access_policy(Duration::from_secs(300), false, None);
+        let session = SharedSession::new(
+            "token123".to_string(),
+            content,
+            access.policy,
+            access.revealed_pin,
+            ResolvedSendMode::Local {
+                http_port: 8080,
+                https_port: 8081,
+            },
+            CancellationToken::new(),
+        );
+        let router = build_router(session);
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri("/?token=token123")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[tokio::test]

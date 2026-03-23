@@ -224,7 +224,7 @@ mod tests {
             requires_pin: true,
             revealed_pin: None,
             primary_link_label: "Public HTTPS",
-            primary_link: "https://beam.example/?token=abc".to_string(),
+            primary_link: "https://beam.example/s/abc".to_string(),
             secondary_link_label: None,
             secondary_link: None,
             provider_status: "ready".to_string(),
@@ -257,9 +257,9 @@ mod tests {
             https_port: 8081,
         };
         snapshot.primary_link_label = "Primary (No Warnings)";
-        snapshot.primary_link = "http://192.168.1.2:8080/?token=abc".to_string();
+        snapshot.primary_link = "http://192.168.1.2:8080/s/abc".to_string();
         snapshot.secondary_link_label = Some("Secondary (Encrypted)");
-        snapshot.secondary_link = Some("https://192.168.1.2:8081/?token=abc".to_string());
+        snapshot.secondary_link = Some("https://192.168.1.2:8081/s/abc".to_string());
 
         let html = render(&snapshot);
         assert!(html.contains("Primary (No Warnings)"));

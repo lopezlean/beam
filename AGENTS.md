@@ -9,6 +9,7 @@ Beam is an ephemeral, terminal-first file sharing CLI written in Rust.
 - `beam send <path>` defaults to global sharing.
 - Global mode uses provider `auto` by default.
 - `auto` tries `cloudflared`, then Pinggy over SSH, then Beam's native relay client when it is configured or clearly reachable.
+- `--provider serveo` is available as an explicit SSH-based provider, but it is not part of `auto`.
 - `--local` is explicit LAN mode and serves the same session over HTTP and HTTPS.
 
 The receiver only needs a browser. The sender runs Beam in a terminal.
@@ -33,7 +34,7 @@ The receiver only needs a browser. The sender runs Beam in a terminal.
 - `src/cli.rs`: CLI parsing, top-level flow, mode selection, startup and shutdown.
 - `src/session.rs`: shared session state, HTTP handlers, TTL, PIN, `--once`, and range handling.
 - `src/content.rs`: file and directory content sources, ZIP streaming, directory filtering.
-- `src/provider.rs`: global provider selection, `cloudflared`, Pinggy-over-SSH, native relay client, `auto`.
+- `src/provider.rs`: global provider selection, `cloudflared`, Pinggy-over-SSH, Serveo-over-SSH, native relay client, `auto`.
 - `src/relay.rs`: reference Beam relay service.
 - `src/relay_protocol.rs`: relay protocol types and frame helpers.
 - `src/ui.rs`: terminal rendering, QR output, session status.
@@ -54,6 +55,7 @@ The receiver only needs a browser. The sender runs Beam in a terminal.
 
 - Do not silently change the meaning of `auto`, `--global`, or `--local`.
 - Keep Pinggy honest in docs: it is a no-account SSH-based fallback with random public domains and a 60-minute free-path limit.
+- Keep Serveo honest in docs: it is an explicit SSH-based provider and anonymous browser visits may show an interstitial warning page.
 - Do not claim Beam ships with a hosted public native relay unless one is actually deployed.
 - Keep native relay behavior honest in docs: the client is embedded, the relay service is separate.
 - Preserve the "single sender binary" philosophy. Avoid adding heavyweight runtime dependencies unless clearly justified.
